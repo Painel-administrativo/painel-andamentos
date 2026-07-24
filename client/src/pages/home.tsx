@@ -1,0 +1,573 @@
+import { useState, useMemo } from "react";
+import { useQuery } from "@tanstack/react-query";
+import { apiRequest, queryClient } from "@/lib/queryClient";
+import { useToast } from "@/hooks/use-toast";
+import { useTheme } from "@/lib/theme";
+import { Logo } from "@/components/Logo";
+import { ProcessoDialog } from "@/components/ProcessoDialog";
+import { BulkAddDialog } from "@/components/BulkAddDialog";
+import { Timeline } from "@/components/Timeline";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Badge } from "@/components/ui/badge";
+import { Switch } from "@/components/ui/switch";
+import { Label } from "@/components/ui/label";
+import { Skeleton } from "@/components/ui/skeleton";
+import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
+import {
+  Sun,
+  Moon,
+  RefreshCw,
+  Plus,
+  ClipboardPaste,
+  Search,
+  ChevronRight,
+  ExternalLink,
+  Pencil,
+  Trash2,
+  Inbox,
+} from "lucide-react";
+import {
+  formatarCNJ,
+  formatarData,
+  tempoRelativo,
+  urlPortal,
+  ultimaMovimentacao,
+} from "@/lib/cnj";
+import type { ProcessoComSnapshot } from "@shared/schema";
+
+const TRINTA_DIAS = 30 * 24 * 60 * 60 * 1000;
+
+export default function Home() {
+  const { toast } = useToast();
+  const { theme, toggle } = useTheme();
+
+  const [aba, setAba] = useState<"painel" | "processos">("painel");
+  const [busca, setBusca] = useState("");
+  const [filtroTribunal, setFiltroTribunal] = useState<"Todos" | "TJRJ" | "TRF2">("Todos");
+  const [soRecentes, setSoRecentes] = useState(false);
+
+  const [addOpen, setAddOpen] = useState(false);
+  const [bulkOpen, setBulkOpen] = useState(false);
+  const [editando, setEditando] = useState<ProcessoComSnapshot | null>(null);
+  const [expandido, setExpandido] = useState<number | null>(null);
+  const [confirmarDelete, setConfirmarDelete] = useState<ProcessoComSnapshot | null>(null);
+
+  const [atualizando, setAtualizando] = useState(false);
+  const [progresso, setProgresso] = useState<string | null>(null);
+  const [ultimaAtualizacao, setUltimaAtualizacao] = useState<string | null>(null);
+
+  const { data: processos = [], isLoading } = useQuery<ProcessoComSnapshot[]>({
+    queryKey: ["/api/processos"],
+  });
+
+  async function handleAtualizar() {
+    if (processos.length === 0) return;
+    setAtualizando(true);
+    setProgresso(`Consultando ${processos.length} processo(s)...`);
+    try {
+      const resp = await apiRequest("POST", "/api/processos/atualizar", {});
+      const data = await resp.json();
+      setUltimaAtualizacao(data.atualizadoEm);
+      queryClient.invalidateQueries({ queryKey: ["/api/processos"] });
+      toast({
+        title: "Andamentos atualizados",
+        description: `${data.ok} ok · ${data.naoEncontrado} não encontrado(s) · ${data.erro} erro(s)`,
+      });
+    } catch (e: any) {
+      toast({ title: "Falha ao atualizar", description: e?.message, variant: "destructive" });
+    } finally {
+      setAtualizando(false);
+      setProgresso(null);
+    }
+  }
+
+  async function handleDelete() {
+    if (!confirmarDelete) return;
+    try {
+      await apiRequest("DELETE", `/api/processos/${confirmarDelete.id}`);
+      queryClient.invalidateQueries({ queryKey: ["/api/processos"] });
+      toast({ title: "Processo removido" });
+    } catch (e: any) {
+      toast({ title: "Erro ao remover", description: e?.message, variant: "destructive" });
+    } finally {
+      setConfirmarDelete(null);
+    }
+  }
+
+  // Enriquecimento + ordenação + filtros
+  const enriquecidos = useMemo(() => {
+    const agora = Date.now();
+    return processos
+      .map((p) => {
+        const um = ultimaMovimentacao(p.dados);
+        const classe = p.dados?.classe?.nome ?? null;
+        const orgao = p.dados?.orgaoJulgador?.nome ?? null;
+        const recente = um.data ? agora - new Date(um.data).getTime() <= TRINTA_DIAS : false;
+        const status = p.snapshot?.status ?? "pendente";
+        return {
+          ...p,
+          _ultimaData: um.data,
+          _ultimoNome: um.nome,
+          _classe: classe,
+          _orgao: orgao,
+          _recente: recente,
+          _status: status,
+        };
+      })
+      .sort((a, b) => {
+        const ta = a._ultimaData ? new Date(a._ultimaData).getTime() : 0;
+        const tb = b._ultimaData ? new Date(b._ultimaData).getTime() : 0;
+        return tb - ta;
+      });
+  }, [processos]);
+
+  const filtrados = useMemo(() => {
+    const q = busca.trim().toLowerCase();
+    return enriquecidos.filter((p) => {
+      if (filtroTribunal !== "Todos" && p.tribunal !== filtroTribunal) return false;
+      if (soRecentes && !p._recente) return false;
+      if (q) {
+        const alvo = [
+          p.apelido ?? "",
+          p.numero,
+          formatarCNJ(p.numero),
+          p._classe ?? "",
+          p._orgao ?? "",
+        ]
+          .join(" ")
+          .toLowerCase();
+        if (!alvo.includes(q)) return false;
+      }
+      return true;
+    });
+  }, [enriquecidos, busca, filtroTribunal, soRecentes]);
+
+  const semProcessos = !isLoading && processos.length === 0;
+
+  return (
+    <div className="min-h-screen bg-background text-foreground">
+      {/* Header */}
+      <header className="sticky top-0 z-20 border-b border-border bg-background/90 backdrop-blur">
+        <div className="mx-auto max-w-[1280px] px-4 sm:px-6 h-14 flex items-center justify-between gap-4">
+          <div className="flex items-center gap-2.5 text-primary">
+            <Logo />
+            <div className="leading-tight">
+              <h1 className="text-sm font-semibold text-foreground">Painel de Andamentos</h1>
+              <p className="text-xs text-muted-foreground hidden sm:block">
+                Acompanhamento processual · TJRJ e TRF2
+              </p>
+            </div>
+          </div>
+          <div className="flex items-center gap-2">
+            <Button
+              variant="ghost"
+              size="icon"
+              onClick={toggle}
+              aria-label="Alternar tema"
+              data-testid="button-tema"
+            >
+              {theme === "dark" ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}
+            </Button>
+          </div>
+        </div>
+      </header>
+
+      <main className="mx-auto max-w-[1280px] px-4 sm:px-6 py-6">
+        {/* Barra de controle */}
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-5">
+          <Tabs value={aba} onValueChange={(v) => setAba(v as any)}>
+            <TabsList>
+              <TabsTrigger value="painel" data-testid="tab-painel">
+                Painel de andamentos
+              </TabsTrigger>
+              <TabsTrigger value="processos" data-testid="tab-processos">
+                Meus processos
+                {processos.length > 0 && (
+                  <span className="ml-1.5 text-xs text-muted-foreground">({processos.length})</span>
+                )}
+              </TabsTrigger>
+            </TabsList>
+          </Tabs>
+
+          <div className="flex flex-wrap items-center gap-2">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setBulkOpen(true)}
+              data-testid="button-adicionar-lote"
+            >
+              <ClipboardPaste className="h-4 w-4 mr-1.5" /> Adicionar em lote
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => {
+                setEditando(null);
+                setAddOpen(true);
+              }}
+              data-testid="button-adicionar"
+            >
+              <Plus className="h-4 w-4 mr-1.5" /> Adicionar
+            </Button>
+            <Button
+              size="sm"
+              onClick={handleAtualizar}
+              disabled={atualizando || processos.length === 0}
+              data-testid="button-atualizar"
+            >
+              <RefreshCw className={`h-4 w-4 mr-1.5 ${atualizando ? "animate-spin" : ""}`} />
+              Atualizar andamentos
+            </Button>
+          </div>
+        </div>
+
+        {/* Empty state */}
+        {semProcessos ? (
+          <EmptyState onAdd={() => setAddOpen(true)} onBulk={() => setBulkOpen(true)} />
+        ) : (
+          <>
+            {/* Filtros */}
+            <div className="flex flex-col md:flex-row md:items-center gap-3 mb-4">
+              <div className="relative flex-1 max-w-md">
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                <Input
+                  placeholder="Buscar por apelido, número, classe ou órgão"
+                  value={busca}
+                  onChange={(e) => setBusca(e.target.value)}
+                  className="pl-9"
+                  data-testid="input-busca"
+                />
+              </div>
+              <div className="flex items-center gap-1 rounded-md border border-border p-0.5">
+                {(["Todos", "TJRJ", "TRF2"] as const).map((t) => (
+                  <button
+                    key={t}
+                    onClick={() => setFiltroTribunal(t)}
+                    data-testid={`filtro-tribunal-${t}`}
+                    className={`px-3 py-1 text-sm rounded transition-colors ${
+                      filtroTribunal === t
+                        ? "bg-primary text-primary-foreground"
+                        : "text-muted-foreground hover-elevate"
+                    }`}
+                  >
+                    {t}
+                  </button>
+                ))}
+              </div>
+              <div className="flex items-center gap-2">
+                <Switch
+                  id="recentes"
+                  checked={soRecentes}
+                  onCheckedChange={setSoRecentes}
+                  data-testid="switch-recentes"
+                />
+                <Label htmlFor="recentes" className="text-sm text-muted-foreground cursor-pointer">
+                  Só movimentação recente (30 dias)
+                </Label>
+              </div>
+            </div>
+
+            {/* Status da última atualização + progresso */}
+            <div className="flex items-center justify-between mb-3 text-xs text-muted-foreground min-h-[20px]">
+              <span data-testid="text-contagem">
+                {filtrados.length} de {processos.length} processo(s)
+              </span>
+              {atualizando ? (
+                <span className="text-primary" data-testid="text-progresso">
+                  {progresso}
+                </span>
+              ) : (
+                ultimaAtualizacao && (
+                  <span data-testid="text-ultima-atualizacao">
+                    Atualizado {tempoRelativo(ultimaAtualizacao)}
+                  </span>
+                )
+              )}
+            </div>
+
+            {/* Tabela */}
+            {isLoading || atualizando ? (
+              <TabelaSkeleton />
+            ) : filtrados.length === 0 ? (
+              <div className="rounded-lg border border-border p-10 text-center text-sm text-muted-foreground">
+                Nenhum processo corresponde aos filtros.
+              </div>
+            ) : (
+              <div className="rounded-lg border border-border overflow-hidden bg-card">
+                {/* Cabeçalho da tabela (desktop) */}
+                <div className="hidden lg:grid grid-cols-[minmax(0,2.5fr)_88px_minmax(0,1.6fr)_minmax(0,2fr)_128px_40px] gap-3 px-4 py-2.5 border-b border-border bg-muted/40 text-xs font-medium text-muted-foreground uppercase tracking-wide">
+                  <span>Processo</span>
+                  <span>Tribunal</span>
+                  <span>Classe</span>
+                  <span>Última movimentação</span>
+                  <span>Data</span>
+                  <span></span>
+                </div>
+                <ul className="divide-y divide-border" role="list">
+                  {filtrados.map((p) => (
+                    <LinhaProcesso
+                      key={p.id}
+                      p={p}
+                      aba={aba}
+                      expandido={expandido === p.id}
+                      onToggle={() => setExpandido(expandido === p.id ? null : p.id)}
+                      onEdit={() => {
+                        setEditando(p);
+                        setAddOpen(true);
+                      }}
+                      onDelete={() => setConfirmarDelete(p)}
+                    />
+                  ))}
+                </ul>
+              </div>
+            )}
+          </>
+        )}
+      </main>
+
+      <ProcessoDialog open={addOpen} onOpenChange={setAddOpen} processo={editando} />
+      <BulkAddDialog open={bulkOpen} onOpenChange={setBulkOpen} />
+
+      <AlertDialog open={!!confirmarDelete} onOpenChange={(v) => !v && setConfirmarDelete(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Remover processo?</AlertDialogTitle>
+            <AlertDialogDescription>
+              {confirmarDelete?.apelido || formatarCNJ(confirmarDelete?.numero ?? "")} será removido
+              do painel. Esta ação não pode ser desfeita.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel data-testid="button-delete-cancelar">Cancelar</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={handleDelete}
+              data-testid="button-delete-confirmar"
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            >
+              Remover
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+    </div>
+  );
+}
+
+function LinhaProcesso({
+  p,
+  aba,
+  expandido,
+  onToggle,
+  onEdit,
+  onDelete,
+}: {
+  p: any;
+  aba: "painel" | "processos";
+  expandido: boolean;
+  onToggle: () => void;
+  onEdit: () => void;
+  onDelete: () => void;
+}) {
+  const titulo = p.apelido || formatarCNJ(p.numero);
+  const naoEncontrado = p._status === "nao_encontrado";
+  const erro = p._status === "erro";
+
+  return (
+    <li className="text-sm" data-testid={`row-processo-${p.id}`}>
+      <div
+        className="grid grid-cols-1 lg:grid-cols-[minmax(0,2.5fr)_88px_minmax(0,1.6fr)_minmax(0,2fr)_128px_40px] gap-x-3 gap-y-1 px-4 py-3 hover-elevate cursor-pointer items-center"
+        onClick={onToggle}
+      >
+        {/* Processo */}
+        <div className="min-w-0">
+          <div className="flex items-center gap-2">
+            <ChevronRight
+              className={`h-4 w-4 shrink-0 text-muted-foreground transition-transform ${expandido ? "rotate-90" : ""}`}
+            />
+            <span className="font-medium text-foreground truncate">{titulo}</span>
+            {p._recente && !naoEncontrado && !erro && (
+              <Badge className="bg-primary text-primary-foreground shrink-0" data-testid={`badge-novo-${p.id}`}>
+                Novo
+              </Badge>
+            )}
+            {naoEncontrado && (
+              <Badge variant="outline" className="text-destructive border-destructive/40 shrink-0">
+                Não encontrado
+              </Badge>
+            )}
+            {erro && (
+              <Badge variant="outline" className="text-destructive border-destructive/40 shrink-0">
+                Erro
+              </Badge>
+            )}
+          </div>
+          {p.apelido && (
+            <span className="ml-6 font-mono text-xs text-muted-foreground block truncate">
+              {formatarCNJ(p.numero)}
+            </span>
+          )}
+        </div>
+
+        {/* Tribunal */}
+        <div className="ml-6 lg:ml-0">
+          <Badge variant="secondary">{p.tribunal}</Badge>
+        </div>
+
+        {/* Classe */}
+        <span className="ml-6 lg:ml-0 text-muted-foreground truncate">
+          {p._classe || <span className="text-muted-foreground/60">—</span>}
+        </span>
+
+        {/* Última movimentação */}
+        <span className="ml-6 lg:ml-0 text-foreground truncate">
+          {p._ultimoNome || <span className="text-muted-foreground/60">Sem dados — atualize</span>}
+        </span>
+
+        {/* Data */}
+        <span className="ml-6 lg:ml-0 font-mono text-xs text-muted-foreground tabular-nums">
+          {p._ultimaData ? formatarData(p._ultimaData) : "—"}
+        </span>
+
+        {/* Ações */}
+        <div className="ml-6 lg:ml-0 flex justify-end">
+          <span className="hidden lg:inline-flex">
+            <Button
+              variant="ghost"
+              size="icon"
+              className="h-7 w-7"
+              onClick={(e) => {
+                e.stopPropagation();
+                onEdit();
+              }}
+              aria-label="Editar"
+              data-testid={`button-editar-${p.id}`}
+            >
+              <Pencil className="h-3.5 w-3.5" />
+            </Button>
+          </span>
+        </div>
+      </div>
+
+      {/* Expandido */}
+      {expandido && (
+        <div className="px-4 pb-5 pt-1 bg-muted/30 border-t border-border" data-testid={`detalhe-${p.id}`}>
+          <div className="grid sm:grid-cols-2 gap-x-8 gap-y-2 mb-4 pl-6 pt-3 text-sm">
+            <InfoItem label="Número CNJ" value={formatarCNJ(p.numero)} mono />
+            <InfoItem label="Órgão julgador" value={p._orgao || "—"} />
+            <InfoItem label="Classe" value={p._classe || "—"} />
+            <InfoItem label="Formato" value={p.dados?.formato?.nome || "—"} />
+            <InfoItem
+              label="Ajuizamento"
+              value={
+                p.dados?.dataAjuizamento
+                  ? formatarData(
+                      `${p.dados.dataAjuizamento.slice(0, 4)}-${p.dados.dataAjuizamento.slice(4, 6)}-${p.dados.dataAjuizamento.slice(6, 8)}`
+                    )
+                  : "—"
+              }
+            />
+            <InfoItem label="Grau" value={p.dados?.grau || "—"} />
+          </div>
+
+          {p.observacoes && (
+            <div className="mb-4 pl-6 text-sm">
+              <span className="text-xs uppercase tracking-wide text-muted-foreground">Observações</span>
+              <p className="mt-0.5 text-foreground">{p.observacoes}</p>
+            </div>
+          )}
+
+          {erro && p.snapshot?.erro && (
+            <p className="mb-4 pl-6 text-sm text-destructive">Erro na consulta: {p.snapshot.erro}</p>
+          )}
+
+          <div className="flex items-center gap-2 pl-6 mb-4">
+            <a href={urlPortal(p.tribunal, p.numero)} target="_blank" rel="noopener noreferrer">
+              <Button variant="outline" size="sm" data-testid={`button-portal-${p.id}`}>
+                <ExternalLink className="h-3.5 w-3.5 mr-1.5" /> Abrir no portal
+              </Button>
+            </a>
+            <Button variant="ghost" size="sm" onClick={onEdit} data-testid={`button-editar-exp-${p.id}`}>
+              <Pencil className="h-3.5 w-3.5 mr-1.5" /> Editar
+            </Button>
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={onDelete}
+              className="text-destructive hover:text-destructive"
+              data-testid={`button-excluir-${p.id}`}
+            >
+              <Trash2 className="h-3.5 w-3.5 mr-1.5" /> Remover
+            </Button>
+          </div>
+
+          <div className="pl-6">
+            <h4 className="text-xs uppercase tracking-wide text-muted-foreground mb-3">
+              Linha do tempo de movimentações
+            </h4>
+            <Timeline movimentos={p.dados?.movimentos ?? []} />
+          </div>
+        </div>
+      )}
+    </li>
+  );
+}
+
+function InfoItem({ label, value, mono }: { label: string; value: string; mono?: boolean }) {
+  return (
+    <div>
+      <span className="text-xs uppercase tracking-wide text-muted-foreground">{label}</span>
+      <p className={`text-foreground ${mono ? "font-mono text-sm" : ""}`}>{value}</p>
+    </div>
+  );
+}
+
+function EmptyState({ onAdd, onBulk }: { onAdd: () => void; onBulk: () => void }) {
+  return (
+    <div className="rounded-lg border border-dashed border-border py-16 px-6 text-center" data-testid="empty-state">
+      <div className="mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-full bg-muted text-muted-foreground">
+        <Inbox className="h-6 w-6" />
+      </div>
+      <h2 className="text-base font-semibold text-foreground">Nenhum processo cadastrado</h2>
+      <p className="mx-auto mt-1.5 max-w-md text-sm text-muted-foreground">
+        Cadastre seu primeiro processo ou cole a lista da sua planilha de controle. Depois clique em
+        “Atualizar andamentos” para consultar o Datajud do CNJ.
+      </p>
+      <div className="mt-5 flex items-center justify-center gap-2">
+        <Button onClick={onBulk} data-testid="button-empty-lote">
+          <ClipboardPaste className="h-4 w-4 mr-1.5" /> Colar lista da planilha
+        </Button>
+        <Button variant="outline" onClick={onAdd} data-testid="button-empty-add">
+          <Plus className="h-4 w-4 mr-1.5" /> Adicionar um processo
+        </Button>
+      </div>
+    </div>
+  );
+}
+
+function TabelaSkeleton() {
+  return (
+    <div className="rounded-lg border border-border overflow-hidden bg-card" data-testid="skeleton">
+      {Array.from({ length: 6 }).map((_, i) => (
+        <div key={i} className="flex items-center gap-4 px-4 py-3.5 border-b border-border last:border-0">
+          <Skeleton className="h-4 w-4 rounded-full" />
+          <Skeleton className="h-4 flex-1 max-w-[240px]" />
+          <Skeleton className="h-5 w-14 rounded-full" />
+          <Skeleton className="h-4 w-28 hidden lg:block" />
+          <Skeleton className="h-4 w-40 hidden lg:block" />
+          <Skeleton className="h-4 w-20 ml-auto" />
+        </div>
+      ))}
+    </div>
+  );
+}
