@@ -127,20 +127,36 @@ export async function registerRoutes(
         });
         continue;
       }
-      const p = await storage.createProcesso({
-        numero: numero20,
-        tribunal: parsed.data.tribunal,
-        apelido: parsed.data.apelido || null,
-        observacoes: parsed.data.observacoes || null,
-      });
-      criados.push(p);
+      try {
+        const p = await storage.createProcesso({
+          numero: numero20,
+          tribunal: parsed.data.tribunal,
+          apelido: parsed.data.apelido || null,
+          observacoes: parsed.data.observacoes || null,
+        });
+        criados.push(p);
+      } catch (e: any) {
+        const msg = String(e?.message || e || "");
+        // Duplicidade: código 23505 do Postgres ou palavra-chave
+        if (msg.includes("23505") || msg.toLowerCase().includes("duplicate") || msg.toLowerCase().includes("unique")) {
+          erros.push({
+            entrada: item,
+            erro: `Processo ${parsed.data.numero} já está cadastrado`,
+          });
+        } else {
+          erros.push({ entrada: item, erro: msg || "Erro ao criar processo" });
+        }
+      }
     }
 
     if (Array.isArray(body)) {
       return res.status(201).json({ criados, erros });
     }
     if (criados.length === 0) {
-      return res.status(400).json({ erros });
+      // Erro único no cadastro individual — usa 409 se for duplicidade, 400 se validação
+      const primeiro = erros[0]?.erro || "Erro ao criar processo";
+      const isDupli = primeiro.toLowerCase().includes("já está cadastrado");
+      return res.status(isDupli ? 409 : 400).json({ erro: primeiro, erros });
     }
     res.status(201).json(criados[0]);
   });
