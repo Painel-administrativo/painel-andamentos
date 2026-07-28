@@ -7,6 +7,7 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 import { ThemeProvider } from "@/lib/theme";
 import NotFound from "@/pages/not-found";
 import Home from "@/pages/home";
+import { InstalarPWA } from "@/components/InstalarPWA";
 
 function AppRouter() {
   return (
@@ -26,6 +27,7 @@ function App() {
           <Router hook={useHashLocation}>
             <AppRouter />
           </Router>
+          <InstalarPWA />
         </TooltipProvider>
       </ThemeProvider>
     </QueryClientProvider>

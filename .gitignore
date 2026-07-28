@@ -1,5 +1,35 @@
-node_modules
-dist
+# Dependências
+node_modules/
+
+# Build
+dist/
+
+# Credenciais e segredos — NUNCA subir
+.env
+.env.local
+.env.*.local
+*.pem
+*.key
+
+# Banco local (não usamos mais, mas por precaução)
+*.db
+*.db-shm
+*.db-wal
 data.db
-data.db-wal
-data.db-shm
+
+# Backups (contêm dados de clientes)
+backups/
+
+# Logs
+*.log
+npm-debug.log*
+
+# Editores
+.vscode/
+.idea/
+*.swp
+.DS_Store
+Thumbs.db
+
+# Sandbox pplx
+.pplx/

@@ -185,6 +185,41 @@ export async function registerRoutes(
     res.json({ tribunal: inferirTribunal(numero20), numeroNormalizado: numero20 });
   });
 
+  // Atualiza um processo específico (com retry — o Datajud às vezes falha)
+  app.post("/api/processos/:id/atualizar", async (req, res) => {
+    const id = Number(req.params.id);
+    const p = await storage.getProcesso(id);
+    if (!p) return res.status(404).json({ erro: "Processo não encontrado" });
+
+    let r: Awaited<ReturnType<typeof consultarDatajud>> | null = null;
+    // até 3 tentativas se der erro ou nao_encontrado
+    for (let tentativa = 0; tentativa < 3; tentativa++) {
+      r = await consultarDatajud(p.numero, p.tribunal);
+      if (r.status === "ok") break;
+      // aguarda antes de tentar de novo (backoff simples)
+      if (tentativa < 2) await new Promise((r) => setTimeout(r, 1500));
+    }
+
+    if (!r) r = { status: "erro", erro: "Sem resposta" };
+
+    await storage.upsertSnapshot(p.id, {
+      status: r.status,
+      erro: r.erro ?? null,
+      dados: r.dados ?? null,
+    });
+
+    // Retorna o processo com o snapshot atualizado
+    const atualizado = (await storage.listProcessos()).find((x) => x.id === id);
+    res.json({
+      processo: atualizado,
+      resultado: {
+        status: r.status,
+        erro: r.erro ?? null,
+        atualizadoEm: new Date().toISOString(),
+      },
+    });
+  });
+
   // Atualiza andamentos: consulta Datajud para TODOS os processos
   app.post("/api/processos/atualizar", async (_req, res) => {
     const lista = await storage.listProcessos();

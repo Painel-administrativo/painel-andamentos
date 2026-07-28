@@ -66,6 +66,40 @@ export default function Home() {
   const [atualizando, setAtualizando] = useState(false);
   const [progresso, setProgresso] = useState<string | null>(null);
   const [ultimaAtualizacao, setUltimaAtualizacao] = useState<string | null>(null);
+  const [atualizandoIds, setAtualizandoIds] = useState<Set<number>>(new Set());
+
+  async function handleAtualizarEste(id: number, apelido: string) {
+    setAtualizandoIds((prev) => new Set(prev).add(id));
+    try {
+      const resp = await apiRequest("POST", `/api/processos/${id}/atualizar`, {});
+      const data = await resp.json();
+      queryClient.invalidateQueries({ queryKey: ["/api/processos"] });
+      const status = data?.resultado?.status;
+      if (status === "ok") {
+        toast({ title: "Atualizado", description: apelido });
+      } else if (status === "nao_encontrado") {
+        toast({
+          title: "Não encontrado no Datajud",
+          description: `${apelido} — tentei 3 vezes. Verifique o número ou tente mais tarde.`,
+          variant: "destructive",
+        });
+      } else {
+        toast({
+          title: "Erro na consulta",
+          description: data?.resultado?.erro || "Falha ao consultar",
+          variant: "destructive",
+        });
+      }
+    } catch (e: any) {
+      toast({ title: "Falha ao atualizar", description: e?.message, variant: "destructive" });
+    } finally {
+      setAtualizandoIds((prev) => {
+        const next = new Set(prev);
+        next.delete(id);
+        return next;
+      });
+    }
+  }
 
   const { data: processos = [], isLoading } = useQuery<ProcessoComSnapshot[]>({
     queryKey: ["/api/processos"],
@@ -327,6 +361,10 @@ export default function Home() {
                         setAddOpen(true);
                       }}
                       onDelete={() => setConfirmarDelete(p)}
+                      onAtualizarEste={() =>
+                        handleAtualizarEste(p.id, p.apelido || formatarCNJ(p.numero))
+                      }
+                      atualizandoEste={atualizandoIds.has(p.id)}
                     />
                   ))}
                 </ul>
@@ -371,6 +409,8 @@ function LinhaProcesso({
   onToggle,
   onEdit,
   onDelete,
+  onAtualizarEste,
+  atualizandoEste,
 }: {
   p: any;
   aba: "painel" | "processos";
@@ -378,6 +418,8 @@ function LinhaProcesso({
   onToggle: () => void;
   onEdit: () => void;
   onDelete: () => void;
+  onAtualizarEste: () => void;
+  atualizandoEste: boolean;
 }) {
   const titulo = p.apelido || formatarCNJ(p.numero);
   const naoEncontrado = p._status === "nao_encontrado";
@@ -441,7 +483,22 @@ function LinhaProcesso({
 
         {/* Ações */}
         <div className="ml-6 lg:ml-0 flex justify-end">
-          <span className="hidden lg:inline-flex">
+          <span className="hidden lg:inline-flex gap-1">
+            <Button
+              variant="ghost"
+              size="icon"
+              className="h-7 w-7"
+              onClick={(e) => {
+                e.stopPropagation();
+                onAtualizarEste();
+              }}
+              disabled={atualizandoEste}
+              aria-label="Atualizar este processo"
+              title="Atualizar este processo"
+              data-testid={`button-atualizar-${p.id}`}
+            >
+              <RefreshCw className={`h-3.5 w-3.5 ${atualizandoEste ? "animate-spin" : ""}`} />
+            </Button>
             <Button
               variant="ghost"
               size="icon"
@@ -497,6 +554,16 @@ function LinhaProcesso({
                 <ExternalLink className="h-3.5 w-3.5 mr-1.5" /> Abrir no portal
               </Button>
             </a>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={onAtualizarEste}
+              disabled={atualizandoEste}
+              data-testid={`button-atualizar-exp-${p.id}`}
+            >
+              <RefreshCw className={`h-3.5 w-3.5 mr-1.5 ${atualizandoEste ? "animate-spin" : ""}`} />{" "}
+              {atualizandoEste ? "Atualizando..." : "Atualizar este"}
+            </Button>
             <Button variant="ghost" size="sm" onClick={onEdit} data-testid={`button-editar-exp-${p.id}`}>
               <Pencil className="h-3.5 w-3.5 mr-1.5" /> Editar
             </Button>
