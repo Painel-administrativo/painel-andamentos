@@ -10,7 +10,7 @@ rmSync(outdir, { recursive: true, force: true });
 mkdirSync(outdir, { recursive: true });
 
 await build({
-  entryPoints: [join(root, "api/index.ts")],
+  entryPoints: [join(root, "api/_source.ts")],
   bundle: true,
   platform: "node",
   target: "node22",

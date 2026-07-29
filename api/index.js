@@ -41018,13 +41018,13 @@ var require_websocket_server = __commonJS({
   }
 });
 
-// api/index.ts
-var index_exports = {};
-__export(index_exports, {
+// api/_source.ts
+var source_exports = {};
+__export(source_exports, {
   default: () => handler
 });
-module.exports = __toCommonJS(index_exports);
-var import_express = __toESM(require_express2(), 1);
+module.exports = __toCommonJS(source_exports);
+var import_express = __toESM(require_express2());
 
 // node_modules/@supabase/supabase-js/dist/index.mjs
 var dist_exports = {};
@@ -53304,10 +53304,55 @@ async function registerRoutes(httpServer, app2) {
       atualizadoEm: (/* @__PURE__ */ new Date()).toISOString()
     });
   });
+  app2.post("/api/processos/atualizar-pendentes", async (_req, res) => {
+    const lista = await storage.listProcessos();
+    const pendentes = lista.filter((p) => {
+      const status = p.snapshot?.status;
+      return !status || status === "erro" || status === "nao_encontrado";
+    });
+    const consultar = pendentes.filter(
+      (p) => !is2oGrauSemCobertura(p.numero, p.tribunal)
+    );
+    const manuais = pendentes.filter(
+      (p) => is2oGrauSemCobertura(p.numero, p.tribunal)
+    );
+    let ok = 0;
+    let naoEncontrado = 0;
+    let erro = 0;
+    let segundoGrau = 0;
+    for (const p of manuais) {
+      await storage.upsertSnapshot(p.id, {
+        status: "2o_grau",
+        erro: null,
+        dados: null
+      });
+      segundoGrau++;
+    }
+    await mapConcurrent(consultar, 5, async (p) => {
+      const r = await consultarDatajud(p.numero, p.tribunal);
+      await storage.upsertSnapshot(p.id, {
+        status: r.status,
+        erro: r.erro ?? null,
+        dados: r.dados ?? null
+      });
+      if (r.status === "ok") ok++;
+      else if (r.status === "nao_encontrado") naoEncontrado++;
+      else erro++;
+    });
+    res.json({
+      totalPendentes: pendentes.length,
+      totalGeral: lista.length,
+      ok,
+      naoEncontrado,
+      erro,
+      segundoGrau,
+      atualizadoEm: (/* @__PURE__ */ new Date()).toISOString()
+    });
+  });
   return httpServer;
 }
 
-// api/index.ts
+// api/_source.ts
 var app = (0, import_express.default)();
 app.use(import_express.default.json({ limit: "5mb" }));
 app.use(import_express.default.urlencoded({ extended: false }));
@@ -53324,12 +53369,14 @@ app.use((_req, res, next) => {
 var ready = false;
 var readyPromise = (async () => {
   await registerRoutes({}, app);
-  app.use((err, _req, res, _next) => {
-    if (res.headersSent) return;
-    console.error("express error:", err);
-    const status = err.status || err.statusCode || 500;
-    res.status(status).json({ message: err.message || "Internal Server Error" });
-  });
+  app.use(
+    (err, _req, res, _next) => {
+      if (res.headersSent) return;
+      console.error("express error:", err);
+      const status = err.status || err.statusCode || 500;
+      res.status(status).json({ message: err.message || "Internal Server Error" });
+    }
+  );
   ready = true;
 })();
 async function handler(req, res) {

@@ -11,6 +11,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Switch } from "@/components/ui/switch";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Label } from "@/components/ui/label";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -67,6 +68,7 @@ export default function Home() {
   const [progresso, setProgresso] = useState<string | null>(null);
   const [ultimaAtualizacao, setUltimaAtualizacao] = useState<string | null>(null);
   const [atualizandoIds, setAtualizandoIds] = useState<Set<number>>(new Set());
+  const [soPendentes, setSoPendentes] = useState(false);
 
   async function handleAtualizarEste(id: number, apelido: string) {
     setAtualizandoIds((prev) => new Set(prev).add(id));
@@ -110,12 +112,41 @@ export default function Home() {
     queryKey: ["/api/processos"],
   });
 
+  // Conta processos pendentes (erro / não encontrado / sem snapshot)
+  const totalPendentes = useMemo(
+    () =>
+      processos.filter((p) => {
+        const s = p.snapshot?.status;
+        return !s || s === "erro" || s === "nao_encontrado";
+      }).length,
+    [processos],
+  );
+
   async function handleAtualizar() {
     if (processos.length === 0) return;
+
+    // Se "Só pendentes" está marcado mas não há pendentes, avisa
+    if (soPendentes && totalPendentes === 0) {
+      toast({
+        title: "Nenhum processo pendente",
+        description: "Todos os processos estão com status ok ou 2º grau.",
+      });
+      return;
+    }
+
+    const endpoint = soPendentes
+      ? "/api/processos/atualizar-pendentes"
+      : "/api/processos/atualizar";
+    const qtd = soPendentes ? totalPendentes : processos.length;
+
     setAtualizando(true);
-    setProgresso(`Consultando ${processos.length} processo(s)...`);
+    setProgresso(
+      soPendentes
+        ? `Consultando ${qtd} pendente(s)...`
+        : `Consultando ${qtd} processo(s)...`,
+    );
     try {
-      const resp = await apiRequest("POST", "/api/processos/atualizar", {});
+      const resp = await apiRequest("POST", endpoint, {});
       const data = await resp.json();
       setUltimaAtualizacao(data.atualizadoEm);
       queryClient.invalidateQueries({ queryKey: ["/api/processos"] });
@@ -126,7 +157,9 @@ export default function Home() {
         data.erro ? `${data.erro} erro(s)` : null,
       ].filter(Boolean);
       toast({
-        title: "Andamentos atualizados",
+        title: soPendentes
+          ? "Pendentes atualizados"
+          : "Andamentos atualizados",
         description: partes.join(" · "),
       });
     } catch (e: any) {
@@ -265,14 +298,34 @@ export default function Home() {
             >
               <Plus className="h-4 w-4 mr-1.5" /> Adicionar
             </Button>
+            <div className="flex items-center gap-2 pl-1 border-l ml-1">
+              <label
+                htmlFor="chk-so-pendentes"
+                className="flex items-center gap-1.5 text-sm text-muted-foreground cursor-pointer select-none"
+                title="Atualiza apenas processos com erro, não encontrado ou sem consulta"
+              >
+                <Checkbox
+                  id="chk-so-pendentes"
+                  checked={soPendentes}
+                  onCheckedChange={(v) => setSoPendentes(v === true)}
+                  disabled={atualizando}
+                  data-testid="checkbox-so-pendentes"
+                />
+                Só pendentes{totalPendentes > 0 ? ` (${totalPendentes})` : ""}
+              </label>
+            </div>
             <Button
               size="sm"
               onClick={handleAtualizar}
-              disabled={atualizando || processos.length === 0}
+              disabled={
+                atualizando ||
+                processos.length === 0 ||
+                (soPendentes && totalPendentes === 0)
+              }
               data-testid="button-atualizar"
             >
               <RefreshCw className={`h-4 w-4 mr-1.5 ${atualizando ? "animate-spin" : ""}`} />
-              Atualizar andamentos
+              {soPendentes ? "Atualizar pendentes" : "Atualizar andamentos"}
             </Button>
           </div>
         </div>

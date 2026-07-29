@@ -311,5 +311,63 @@ export async function registerRoutes(
     });
   });
 
+  // Atualiza andamentos: consulta Datajud APENAS para processos pendentes
+  // (último snapshot com status = erro OU nao_encontrado, ou sem snapshot algum).
+  // Não mexe em processos com status "ok" nem "2o_grau".
+  app.post("/api/processos/atualizar-pendentes", async (_req, res) => {
+    const lista = await storage.listProcessos();
+
+    // Filtra pendentes: status erro/nao_encontrado ou sem snapshot
+    const pendentes = lista.filter((p) => {
+      const status = p.snapshot?.status;
+      return !status || status === "erro" || status === "nao_encontrado";
+    });
+
+    // Separa 2º grau (acompanhamento manual) dos que serão consultados
+    const consultar = pendentes.filter(
+      (p) => !is2oGrauSemCobertura(p.numero, p.tribunal),
+    );
+    const manuais = pendentes.filter((p) =>
+      is2oGrauSemCobertura(p.numero, p.tribunal),
+    );
+
+    let ok = 0;
+    let naoEncontrado = 0;
+    let erro = 0;
+    let segundoGrau = 0;
+
+    // Marca 2º grau imediatamente
+    for (const p of manuais) {
+      await storage.upsertSnapshot(p.id, {
+        status: "2o_grau",
+        erro: null,
+        dados: null,
+      });
+      segundoGrau++;
+    }
+
+    await mapConcurrent(consultar, 5, async (p) => {
+      const r = await consultarDatajud(p.numero, p.tribunal);
+      await storage.upsertSnapshot(p.id, {
+        status: r.status,
+        erro: r.erro ?? null,
+        dados: r.dados ?? null,
+      });
+      if (r.status === "ok") ok++;
+      else if (r.status === "nao_encontrado") naoEncontrado++;
+      else erro++;
+    });
+
+    res.json({
+      totalPendentes: pendentes.length,
+      totalGeral: lista.length,
+      ok,
+      naoEncontrado,
+      erro,
+      segundoGrau,
+      atualizadoEm: new Date().toISOString(),
+    });
+  });
+
   return httpServer;
 }
