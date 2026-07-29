@@ -53074,11 +53074,10 @@ function endpointFor(tribunal) {
 function normalizarNumero(numero) {
   return (numero || "").replace(/[^\d]/g, "");
 }
-function is2oGrauSemCobertura(numero20, tribunal) {
+function tem2oGrauFallback(numero20, tribunal) {
   if (numero20.length !== 20) return false;
   const orgao = numero20.substring(16, 20);
-  if (tribunal === "TJRJ" && orgao === "0000") return true;
-  return false;
+  return orgao === "0000" && (tribunal === "TJRJ" || tribunal === "TRF2");
 }
 function inferirTribunal(numero20) {
   if (numero20.length !== 20) return null;
@@ -53230,22 +53229,6 @@ async function registerRoutes(httpServer, app2) {
     const id = Number(req.params.id);
     const p = await storage.getProcesso(id);
     if (!p) return res.status(404).json({ erro: "Processo n\xE3o encontrado" });
-    if (is2oGrauSemCobertura(p.numero, p.tribunal)) {
-      await storage.upsertSnapshot(p.id, {
-        status: "2o_grau",
-        erro: null,
-        dados: null
-      });
-      const atualizado2 = (await storage.listProcessos()).find((x) => x.id === id);
-      return res.json({
-        processo: atualizado2,
-        resultado: {
-          status: "2o_grau",
-          erro: null,
-          atualizadoEm: (/* @__PURE__ */ new Date()).toISOString()
-        }
-      });
-    }
     let r = null;
     for (let tentativa = 0; tentativa < 3; tentativa++) {
       r = await consultarDatajud(p.numero, p.tribunal);
@@ -53253,6 +53236,9 @@ async function registerRoutes(httpServer, app2) {
       if (tentativa < 2) await new Promise((r2) => setTimeout(r2, 1500));
     }
     if (!r) r = { status: "erro", erro: "Sem resposta" };
+    if (r.status === "nao_encontrado" && tem2oGrauFallback(p.numero, p.tribunal)) {
+      r = { status: "2o_grau", dados: void 0, erro: void 0 };
+    }
     await storage.upsertSnapshot(p.id, {
       status: r.status,
       erro: r.erro ?? null,
@@ -53274,18 +53260,11 @@ async function registerRoutes(httpServer, app2) {
     let naoEncontrado = 0;
     let erro = 0;
     let segundoGrau = 0;
-    const consultar = lista.filter((p) => !is2oGrauSemCobertura(p.numero, p.tribunal));
-    const manuais = lista.filter((p) => is2oGrauSemCobertura(p.numero, p.tribunal));
-    for (const p of manuais) {
-      await storage.upsertSnapshot(p.id, {
-        status: "2o_grau",
-        erro: null,
-        dados: null
-      });
-      segundoGrau++;
-    }
-    await mapConcurrent(consultar, 5, async (p) => {
-      const r = await consultarDatajud(p.numero, p.tribunal);
+    await mapConcurrent(lista, 5, async (p) => {
+      let r = await consultarDatajud(p.numero, p.tribunal);
+      if (r.status === "nao_encontrado" && tem2oGrauFallback(p.numero, p.tribunal)) {
+        r = { status: "2o_grau", dados: void 0, erro: void 0 };
+      }
       await storage.upsertSnapshot(p.id, {
         status: r.status,
         erro: r.erro ?? null,
@@ -53293,6 +53272,7 @@ async function registerRoutes(httpServer, app2) {
       });
       if (r.status === "ok") ok++;
       else if (r.status === "nao_encontrado") naoEncontrado++;
+      else if (r.status === "2o_grau") segundoGrau++;
       else erro++;
     });
     res.json({
@@ -53310,26 +53290,15 @@ async function registerRoutes(httpServer, app2) {
       const status = p.snapshot?.status;
       return !status || status === "erro" || status === "nao_encontrado";
     });
-    const consultar = pendentes.filter(
-      (p) => !is2oGrauSemCobertura(p.numero, p.tribunal)
-    );
-    const manuais = pendentes.filter(
-      (p) => is2oGrauSemCobertura(p.numero, p.tribunal)
-    );
     let ok = 0;
     let naoEncontrado = 0;
     let erro = 0;
     let segundoGrau = 0;
-    for (const p of manuais) {
-      await storage.upsertSnapshot(p.id, {
-        status: "2o_grau",
-        erro: null,
-        dados: null
-      });
-      segundoGrau++;
-    }
-    await mapConcurrent(consultar, 5, async (p) => {
-      const r = await consultarDatajud(p.numero, p.tribunal);
+    await mapConcurrent(pendentes, 5, async (p) => {
+      let r = await consultarDatajud(p.numero, p.tribunal);
+      if (r.status === "nao_encontrado" && tem2oGrauFallback(p.numero, p.tribunal)) {
+        r = { status: "2o_grau", dados: void 0, erro: void 0 };
+      }
       await storage.upsertSnapshot(p.id, {
         status: r.status,
         erro: r.erro ?? null,
@@ -53337,6 +53306,7 @@ async function registerRoutes(httpServer, app2) {
       });
       if (r.status === "ok") ok++;
       else if (r.status === "nao_encontrado") naoEncontrado++;
+      else if (r.status === "2o_grau") segundoGrau++;
       else erro++;
     });
     res.json({
