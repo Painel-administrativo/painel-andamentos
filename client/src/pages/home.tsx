@@ -325,8 +325,23 @@ export default function Home() {
 
             {/* Status da última atualização + progresso */}
             <div className="flex items-center justify-between mb-3 text-xs text-muted-foreground min-h-[20px]">
-              <span data-testid="text-contagem">
-                {filtrados.length} de {processos.length} processo(s)
+              <span className="flex items-center gap-2 flex-wrap" data-testid="text-contagem">
+                <span>
+                  {filtrados.length} de {processos.length} processo(s)
+                </span>
+                {(() => {
+                  const total2oGrau = enriquecidos.filter((p) => p._status === "2o_grau").length;
+                  if (total2oGrau === 0) return null;
+                  return (
+                    <span
+                      className="inline-flex items-center rounded-md border border-blue-400/40 bg-blue-50 dark:bg-blue-950/30 px-1.5 py-0.5 text-blue-700 dark:text-blue-300"
+                      title="Processos de 2º grau do TJRJ — acompanhamento manual pelo portal"
+                      data-testid="badge-total-2grau"
+                    >
+                      {total2oGrau} de 2º grau · manual
+                    </span>
+                  );
+                })()}
               </span>
               {atualizando ? (
                 <span className="text-primary" data-testid="text-progresso">
