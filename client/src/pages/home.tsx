@@ -68,7 +68,11 @@ export default function Home() {
   const [progresso, setProgresso] = useState<string | null>(null);
   const [ultimaAtualizacao, setUltimaAtualizacao] = useState<string | null>(null);
   const [atualizandoIds, setAtualizandoIds] = useState<Set<number>>(new Set());
-  const [soPendentes, setSoPendentes] = useState(false);
+  // Modo de atualização: 'todos' (padrão), 'pendentes' (erro/nao_encontrado/sem
+  // snapshot) ou '2ograu' (só os marcados como acompanhamento manual).
+  const [modoAtualizar, setModoAtualizar] = useState<"todos" | "pendentes" | "2ograu">("todos");
+  const soPendentes = modoAtualizar === "pendentes";
+  const so2oGrau = modoAtualizar === "2ograu";
 
   async function handleAtualizarEste(id: number, apelido: string) {
     setAtualizandoIds((prev) => new Set(prev).add(id));
@@ -122,10 +126,16 @@ export default function Home() {
     [processos],
   );
 
+  // Conta processos marcados como 2º grau (acompanhamento manual)
+  const total2oGrau = useMemo(
+    () => processos.filter((p) => p.snapshot?.status === "2o_grau").length,
+    [processos],
+  );
+
   async function handleAtualizar() {
     if (processos.length === 0) return;
 
-    // Se "Só pendentes" está marcado mas não há pendentes, avisa
+    // Avisa se o modo escolhido não tem processos alvo
     if (soPendentes && totalPendentes === 0) {
       toast({
         title: "Nenhum processo pendente",
@@ -133,18 +143,33 @@ export default function Home() {
       });
       return;
     }
+    if (so2oGrau && total2oGrau === 0) {
+      toast({
+        title: "Nenhum processo em 2º grau",
+        description: "Não há processos marcados como acompanhamento manual.",
+      });
+      return;
+    }
 
-    const endpoint = soPendentes
-      ? "/api/processos/atualizar-pendentes"
-      : "/api/processos/atualizar";
-    const qtd = soPendentes ? totalPendentes : processos.length;
+    let endpoint: string;
+    let qtd: number;
+    let tituloOk: string;
+    if (soPendentes) {
+      endpoint = "/api/processos/atualizar-pendentes";
+      qtd = totalPendentes;
+      tituloOk = "Pendentes atualizados";
+    } else if (so2oGrau) {
+      endpoint = "/api/processos/atualizar-2ograu";
+      qtd = total2oGrau;
+      tituloOk = "2º grau reverificado";
+    } else {
+      endpoint = "/api/processos/atualizar";
+      qtd = processos.length;
+      tituloOk = "Andamentos atualizados";
+    }
 
     setAtualizando(true);
-    setProgresso(
-      soPendentes
-        ? `Consultando ${qtd} pendente(s)...`
-        : `Consultando ${qtd} processo(s)...`,
-    );
+    setProgresso(`Consultando ${qtd} processo(s)...`);
     try {
       const resp = await apiRequest("POST", endpoint, {});
       const data = await resp.json();
@@ -157,9 +182,7 @@ export default function Home() {
         data.erro ? `${data.erro} erro(s)` : null,
       ].filter(Boolean);
       toast({
-        title: soPendentes
-          ? "Pendentes atualizados"
-          : "Andamentos atualizados",
+        title: tituloOk,
         description: partes.join(" · "),
       });
     } catch (e: any) {
@@ -298,7 +321,7 @@ export default function Home() {
             >
               <Plus className="h-4 w-4 mr-1.5" /> Adicionar
             </Button>
-            <div className="flex items-center gap-2 pl-1 border-l ml-1">
+            <div className="flex items-center gap-3 pl-2 border-l ml-1">
               <label
                 htmlFor="chk-so-pendentes"
                 className="flex items-center gap-1.5 text-sm text-muted-foreground cursor-pointer select-none"
@@ -307,11 +330,29 @@ export default function Home() {
                 <Checkbox
                   id="chk-so-pendentes"
                   checked={soPendentes}
-                  onCheckedChange={(v) => setSoPendentes(v === true)}
+                  onCheckedChange={(v) =>
+                    setModoAtualizar(v === true ? "pendentes" : "todos")
+                  }
                   disabled={atualizando}
                   data-testid="checkbox-so-pendentes"
                 />
                 Só pendentes{totalPendentes > 0 ? ` (${totalPendentes})` : ""}
+              </label>
+              <label
+                htmlFor="chk-so-2ograu"
+                className="flex items-center gap-1.5 text-sm text-muted-foreground cursor-pointer select-none"
+                title="Reverifica se os processos em 2º grau ganharam cobertura no Datajud"
+              >
+                <Checkbox
+                  id="chk-so-2ograu"
+                  checked={so2oGrau}
+                  onCheckedChange={(v) =>
+                    setModoAtualizar(v === true ? "2ograu" : "todos")
+                  }
+                  disabled={atualizando}
+                  data-testid="checkbox-so-2ograu"
+                />
+                Só 2º grau{total2oGrau > 0 ? ` (${total2oGrau})` : ""}
               </label>
             </div>
             <Button
@@ -320,12 +361,17 @@ export default function Home() {
               disabled={
                 atualizando ||
                 processos.length === 0 ||
-                (soPendentes && totalPendentes === 0)
+                (soPendentes && totalPendentes === 0) ||
+                (so2oGrau && total2oGrau === 0)
               }
               data-testid="button-atualizar"
             >
               <RefreshCw className={`h-4 w-4 mr-1.5 ${atualizando ? "animate-spin" : ""}`} />
-              {soPendentes ? "Atualizar pendentes" : "Atualizar andamentos"}
+              {soPendentes
+                ? "Atualizar pendentes"
+                : so2oGrau
+                  ? "Reverificar 2º grau"
+                  : "Atualizar andamentos"}
             </Button>
           </div>
         </div>

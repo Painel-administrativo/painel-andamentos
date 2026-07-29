@@ -53319,6 +53319,40 @@ async function registerRoutes(httpServer, app2) {
       atualizadoEm: (/* @__PURE__ */ new Date()).toISOString()
     });
   });
+  app2.post("/api/processos/atualizar-2ograu", async (_req, res) => {
+    const lista = await storage.listProcessos();
+    const segundoGrauLista = lista.filter(
+      (p) => p.snapshot?.status === "2o_grau"
+    );
+    let ok = 0;
+    let naoEncontrado = 0;
+    let erro = 0;
+    let segundoGrau = 0;
+    await mapConcurrent(segundoGrauLista, 5, async (p) => {
+      let r = await consultarDatajud(p.numero, p.tribunal);
+      if (r.status === "nao_encontrado" && tem2oGrauFallback(p.numero, p.tribunal)) {
+        r = { status: "2o_grau", dados: void 0, erro: void 0 };
+      }
+      await storage.upsertSnapshot(p.id, {
+        status: r.status,
+        erro: r.erro ?? null,
+        dados: r.dados ?? null
+      });
+      if (r.status === "ok") ok++;
+      else if (r.status === "nao_encontrado") naoEncontrado++;
+      else if (r.status === "2o_grau") segundoGrau++;
+      else erro++;
+    });
+    res.json({
+      total2oGrau: segundoGrauLista.length,
+      totalGeral: lista.length,
+      ok,
+      naoEncontrado,
+      erro,
+      segundoGrau,
+      atualizadoEm: (/* @__PURE__ */ new Date()).toISOString()
+    });
+  });
   return httpServer;
 }
 

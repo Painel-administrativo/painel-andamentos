@@ -345,5 +345,53 @@ export async function registerRoutes(
     });
   });
 
+  // Atualiza andamentos: consulta Datajud APENAS para processos com status
+  // atual "2o_grau". Útil para reverificar periodicamente se algum agravo/
+  // ação rescisória passou a ter cobertura no Datajud (ou perdeu, virando
+  // fallback de novo).
+  app.post("/api/processos/atualizar-2ograu", async (_req, res) => {
+    const lista = await storage.listProcessos();
+    const segundoGrauLista = lista.filter(
+      (p) => p.snapshot?.status === "2o_grau",
+    );
+
+    let ok = 0;
+    let naoEncontrado = 0;
+    let erro = 0;
+    let segundoGrau = 0;
+
+    await mapConcurrent(segundoGrauLista, 5, async (p) => {
+      let r = await consultarDatajud(p.numero, p.tribunal);
+
+      // Mesmo fallback das outras rotas
+      if (
+        r.status === "nao_encontrado" &&
+        tem2oGrauFallback(p.numero, p.tribunal)
+      ) {
+        r = { status: "2o_grau" as any, dados: undefined, erro: undefined };
+      }
+
+      await storage.upsertSnapshot(p.id, {
+        status: r.status,
+        erro: r.erro ?? null,
+        dados: r.dados ?? null,
+      });
+      if (r.status === "ok") ok++;
+      else if (r.status === "nao_encontrado") naoEncontrado++;
+      else if ((r.status as any) === "2o_grau") segundoGrau++;
+      else erro++;
+    });
+
+    res.json({
+      total2oGrau: segundoGrauLista.length,
+      totalGeral: lista.length,
+      ok,
+      naoEncontrado,
+      erro,
+      segundoGrau,
+      atualizadoEm: new Date().toISOString(),
+    });
+  });
+
   return httpServer;
 }
