@@ -1,6 +1,13 @@
 import { QueryClient, QueryFunction } from "@tanstack/react-query";
 
-const API_BASE = "__PORT_5000__".startsWith("__") ? "" : "__PORT_5000__";
+// Backend migrado para Vercel (pplx.app tinha instabilidade constante).
+// Em produção sempre usa a URL do Vercel; em dev local usa proxy.
+const API_BASE =
+  typeof window !== "undefined" &&
+  (window.location.hostname === "localhost" ||
+    window.location.hostname === "127.0.0.1")
+    ? ""
+    : "https://painel-andamentos-backend.vercel.app";
 
 async function throwIfResNotOk(res: Response) {
   if (!res.ok) {

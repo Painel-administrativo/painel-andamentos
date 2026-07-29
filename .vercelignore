@@ -1,0 +1,9 @@
+node_modules
+dist
+client
+backups
+.git
+.github
+script
+attached_assets
+*.log

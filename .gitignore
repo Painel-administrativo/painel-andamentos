@@ -33,3 +33,7 @@ Thumbs.db
 
 # Sandbox pplx
 .pplx/
+
+# Vercel
+.vercel
+api-build/
