@@ -77,6 +77,11 @@ export default function Home() {
       const status = data?.resultado?.status;
       if (status === "ok") {
         toast({ title: "Atualizado", description: apelido });
+      } else if (status === "2o_grau") {
+        toast({
+          title: "2º grau — acompanhamento manual",
+          description: `${apelido} — processos de 2º grau do TJRJ não são cobertos pelo Datajud. Consulte pelo portal.`,
+        });
       } else if (status === "nao_encontrado") {
         toast({
           title: "Não encontrado no Datajud",
@@ -114,9 +119,15 @@ export default function Home() {
       const data = await resp.json();
       setUltimaAtualizacao(data.atualizadoEm);
       queryClient.invalidateQueries({ queryKey: ["/api/processos"] });
+      const partes = [
+        `${data.ok} ok`,
+        data.segundoGrau ? `${data.segundoGrau} de 2º grau` : null,
+        data.naoEncontrado ? `${data.naoEncontrado} não encontrado(s)` : null,
+        data.erro ? `${data.erro} erro(s)` : null,
+      ].filter(Boolean);
       toast({
         title: "Andamentos atualizados",
-        description: `${data.ok} ok · ${data.naoEncontrado} não encontrado(s) · ${data.erro} erro(s)`,
+        description: partes.join(" · "),
       });
     } catch (e: any) {
       toast({ title: "Falha ao atualizar", description: e?.message, variant: "destructive" });
@@ -424,6 +435,7 @@ function LinhaProcesso({
   const titulo = p.apelido || formatarCNJ(p.numero);
   const naoEncontrado = p._status === "nao_encontrado";
   const erro = p._status === "erro";
+  const segundoGrau = p._status === "2o_grau";
 
   return (
     <li className="text-sm" data-testid={`row-processo-${p.id}`}>
@@ -438,9 +450,18 @@ function LinhaProcesso({
               className={`h-4 w-4 shrink-0 text-muted-foreground transition-transform ${expandido ? "rotate-90" : ""}`}
             />
             <span className="font-medium text-foreground truncate">{titulo}</span>
-            {p._recente && !naoEncontrado && !erro && (
+            {p._recente && !naoEncontrado && !erro && !segundoGrau && (
               <Badge className="bg-primary text-primary-foreground shrink-0" data-testid={`badge-novo-${p.id}`}>
                 Novo
+              </Badge>
+            )}
+            {segundoGrau && (
+              <Badge
+                variant="outline"
+                className="text-blue-700 dark:text-blue-300 border-blue-400/50 bg-blue-50 dark:bg-blue-950/40 shrink-0"
+                data-testid={`badge-2grau-${p.id}`}
+              >
+                2º grau · manual
               </Badge>
             )}
             {naoEncontrado && (
@@ -473,7 +494,11 @@ function LinhaProcesso({
 
         {/* Última movimentação */}
         <span className="ml-6 lg:ml-0 text-foreground truncate">
-          {p._ultimoNome || <span className="text-muted-foreground/60">Sem dados — atualize</span>}
+          {segundoGrau ? (
+            <span className="text-muted-foreground italic">Consultar diretamente no portal do TJRJ</span>
+          ) : (
+            p._ultimoNome || <span className="text-muted-foreground/60">Sem dados — atualize</span>
+          )}
         </span>
 
         {/* Data */}
@@ -484,21 +509,23 @@ function LinhaProcesso({
         {/* Ações */}
         <div className="ml-6 lg:ml-0 flex justify-end">
           <span className="hidden lg:inline-flex gap-1">
-            <Button
-              variant="ghost"
-              size="icon"
-              className="h-7 w-7"
-              onClick={(e) => {
-                e.stopPropagation();
-                onAtualizarEste();
-              }}
-              disabled={atualizandoEste}
-              aria-label="Atualizar este processo"
-              title="Atualizar este processo"
-              data-testid={`button-atualizar-${p.id}`}
-            >
-              <RefreshCw className={`h-3.5 w-3.5 ${atualizandoEste ? "animate-spin" : ""}`} />
-            </Button>
+            {!segundoGrau && (
+              <Button
+                variant="ghost"
+                size="icon"
+                className="h-7 w-7"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onAtualizarEste();
+                }}
+                disabled={atualizandoEste}
+                aria-label="Atualizar este processo"
+                title="Atualizar este processo"
+                data-testid={`button-atualizar-${p.id}`}
+              >
+                <RefreshCw className={`h-3.5 w-3.5 ${atualizandoEste ? "animate-spin" : ""}`} />
+              </Button>
+            )}
             <Button
               variant="ghost"
               size="icon"
@@ -548,22 +575,37 @@ function LinhaProcesso({
             <p className="mb-4 pl-6 text-sm text-destructive">Erro na consulta: {p.snapshot.erro}</p>
           )}
 
+          {segundoGrau && (
+            <div className="mb-4 pl-6 text-sm">
+              <div className="rounded-md border border-blue-400/40 bg-blue-50 dark:bg-blue-950/30 p-3 text-blue-900 dark:text-blue-200">
+                <p className="font-medium mb-1">Processo de 2º grau do TJRJ</p>
+                <p className="text-xs leading-relaxed">
+                  O TJRJ não disponibiliza processos de 2º grau na base pública do Datajud (CNJ). Este processo
+                  precisa ser acompanhado manualmente pelo portal do tribunal. O painel não tentará mais
+                  consultá-lo automaticamente.
+                </p>
+              </div>
+            </div>
+          )}
+
           <div className="flex items-center gap-2 pl-6 mb-4">
             <a href={urlPortal(p.tribunal, p.numero)} target="_blank" rel="noopener noreferrer">
-              <Button variant="outline" size="sm" data-testid={`button-portal-${p.id}`}>
+              <Button variant={segundoGrau ? "default" : "outline"} size="sm" data-testid={`button-portal-${p.id}`}>
                 <ExternalLink className="h-3.5 w-3.5 mr-1.5" /> Abrir no portal
               </Button>
             </a>
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={onAtualizarEste}
-              disabled={atualizandoEste}
-              data-testid={`button-atualizar-exp-${p.id}`}
-            >
-              <RefreshCw className={`h-3.5 w-3.5 mr-1.5 ${atualizandoEste ? "animate-spin" : ""}`} />{" "}
-              {atualizandoEste ? "Atualizando..." : "Atualizar este"}
-            </Button>
+            {!segundoGrau && (
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={onAtualizarEste}
+                disabled={atualizandoEste}
+                data-testid={`button-atualizar-exp-${p.id}`}
+              >
+                <RefreshCw className={`h-3.5 w-3.5 mr-1.5 ${atualizandoEste ? "animate-spin" : ""}`} />{" "}
+                {atualizandoEste ? "Atualizando..." : "Atualizar este"}
+              </Button>
+            )}
             <Button variant="ghost" size="sm" onClick={onEdit} data-testid={`button-editar-exp-${p.id}`}>
               <Pencil className="h-3.5 w-3.5 mr-1.5" /> Editar
             </Button>

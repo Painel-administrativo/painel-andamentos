@@ -22,6 +22,18 @@ function normalizarNumero(numero: string): string {
   return (numero || "").replace(/[^\d]/g, "");
 }
 
+// Detecta processos de 2º grau do TJRJ (agravos, apelações etc.) que não têm
+// cobertura na base pública do Datajud. Regra: código de órgão julgador "0000"
+// (últimos 4 dígitos do CNJ). Confirmado empiricamente: 0 hits para grau G2
+// no índice api_publica_tjrj — o tribunal não envia esses dados ao CNJ.
+function is2oGrauSemCobertura(numero20: string, tribunal: string): boolean {
+  if (numero20.length !== 20) return false;
+  const orgao = numero20.substring(16, 20);
+  // TJRJ 2º grau: código órgão "0000"
+  if (tribunal === "TJRJ" && orgao === "0000") return true;
+  return false;
+}
+
 // Infere tribunal pelo segmento J.TR do CNJ (posições após validador)
 // Formato: NNNNNNN DD AAAA J TR OOOO  -> 7,2,4,1,2,4 = 20 dígitos
 function inferirTribunal(numero20: string): string | null {
@@ -207,6 +219,25 @@ export async function registerRoutes(
     const p = await storage.getProcesso(id);
     if (!p) return res.status(404).json({ erro: "Processo não encontrado" });
 
+    // Processos de 2º grau do TJRJ não têm cobertura no Datajud público.
+    // Marca como acompanhamento manual e evita bater na API à toa.
+    if (is2oGrauSemCobertura(p.numero, p.tribunal)) {
+      await storage.upsertSnapshot(p.id, {
+        status: "2o_grau",
+        erro: null,
+        dados: null,
+      });
+      const atualizado = (await storage.listProcessos()).find((x) => x.id === id);
+      return res.json({
+        processo: atualizado,
+        resultado: {
+          status: "2o_grau",
+          erro: null,
+          atualizadoEm: new Date().toISOString(),
+        },
+      });
+    }
+
     let r: Awaited<ReturnType<typeof consultarDatajud>> | null = null;
     // até 3 tentativas se der erro ou nao_encontrado
     for (let tentativa = 0; tentativa < 3; tentativa++) {
@@ -242,8 +273,23 @@ export async function registerRoutes(
     let ok = 0;
     let naoEncontrado = 0;
     let erro = 0;
+    let segundoGrau = 0;
 
-    await mapConcurrent(lista, 5, async (p) => {
+    // Separa 2º grau (acompanhamento manual) dos que serão consultados
+    const consultar = lista.filter((p) => !is2oGrauSemCobertura(p.numero, p.tribunal));
+    const manuais = lista.filter((p) => is2oGrauSemCobertura(p.numero, p.tribunal));
+
+    // Marca 2º grau imediatamente
+    for (const p of manuais) {
+      await storage.upsertSnapshot(p.id, {
+        status: "2o_grau",
+        erro: null,
+        dados: null,
+      });
+      segundoGrau++;
+    }
+
+    await mapConcurrent(consultar, 5, async (p) => {
       const r = await consultarDatajud(p.numero, p.tribunal);
       await storage.upsertSnapshot(p.id, {
         status: r.status,
@@ -260,6 +306,7 @@ export async function registerRoutes(
       ok,
       naoEncontrado,
       erro,
+      segundoGrau,
       atualizadoEm: new Date().toISOString(),
     });
   });
