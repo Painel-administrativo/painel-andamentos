@@ -65,15 +65,17 @@ export function tempoRelativo(iso?: string | null): string {
   return formatarData(iso);
 }
 
-// URL do portal do tribunal
+// URL do portal do tribunal (nenhum aceita deep-link com número preenchido,
+// mas o painel copia o CNJ pro clipboard antes de abrir).
 export function urlPortal(tribunal: string, numero: string): string {
   if (tribunal === "TRF2") {
-    return `https://processual.trf2.jus.br/consulta/numero?proc=${formatarCNJ(numero)}`;
+    // e-Proc TRF2: consulta pública de processos (aceita chave/CPF/OAB também).
+    // Não aceita deep-link com número — abre no formulário de busca.
+    return "https://eproc.trf2.jus.br/eproc/externo_controlador.php?acao=processo_consulta_publica";
   }
-  // TJRJ: abre o Portal de Serviços (login com token/certificado). Uma vez
-  // logado, tem acesso completo aos autos dos processos em que é procurador,
-  // inclusive segredo de justiça. O número não vai via URL — o portal não
-  // aceita deep-link — mas fica disponível no card do painel pra colar.
+  // TJRJ: Portal de Serviços (login com token/certificado). Uma vez logado,
+  // acesso completo aos autos, inclusive segredo de justiça. Também não
+  // aceita deep-link — o painel copia o CNJ pro clipboard antes de abrir.
   return "https://www3.tjrj.jus.br/idserverjus-front/#/login?indGet=true&sgSist=PORTALSERVICOS";
 }
 

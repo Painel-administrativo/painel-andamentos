@@ -760,19 +760,19 @@ function LinhaProcesso({
               size="sm"
               data-testid={`button-portal-${p.id}`}
               onClick={async () => {
-                // Para TJRJ (Portal de Serviços não aceita deep-link), copia o
-                // número pro clipboard automaticamente antes de abrir o portal.
-                // Para TRF2 o próprio deep-link já preenche o número.
-                if (p.tribunal === "TJRJ") {
-                  try {
-                    await navigator.clipboard.writeText(formatarCNJ(p.numero));
-                    toast({
-                      title: "Número copiado",
-                      description: `${formatarCNJ(p.numero)} · cole no Portal após logar`,
-                    });
-                  } catch {
-                    // Se clipboard falhar (contexto não-seguro), só abre
-                  }
+                // Nenhum portal aceita deep-link com o número preenchido, então
+                // copiamos o CNJ pro clipboard automaticamente antes de abrir.
+                // O usuário cola (Ctrl+V) no campo "Nº Processo" após carregar
+                // (ou logar, no caso do TJRJ).
+                const cnj = formatarCNJ(p.numero);
+                try {
+                  await navigator.clipboard.writeText(cnj);
+                  toast({
+                    title: "Número copiado",
+                    description: `${cnj} · cole no portal após carregar`,
+                  });
+                } catch {
+                  // Se clipboard falhar (contexto não-seguro), só abre
                 }
                 window.open(urlPortal(p.tribunal, p.numero), "_blank", "noopener,noreferrer");
               }}
