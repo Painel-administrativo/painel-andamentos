@@ -648,6 +648,30 @@ function LinhaProcesso({
               variant="ghost"
               size="icon"
               className="h-7 w-7"
+              onClick={async (e) => {
+                e.stopPropagation();
+                const cnj = formatarCNJ(p.numero);
+                try {
+                  await navigator.clipboard.writeText(cnj);
+                  toast({ title: "Número copiado", description: cnj });
+                } catch {
+                  toast({
+                    title: "Não consegui copiar",
+                    description: cnj,
+                    variant: "destructive",
+                  });
+                }
+              }}
+              aria-label="Copiar número CNJ"
+              title="Copiar número CNJ"
+              data-testid={`button-copiar-inline-${p.id}`}
+            >
+              <Copy className="h-3.5 w-3.5" />
+            </Button>
+            <Button
+              variant="ghost"
+              size="icon"
+              className="h-7 w-7"
               onClick={(e) => {
                 e.stopPropagation();
                 onEdit();
