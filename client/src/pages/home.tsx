@@ -37,6 +37,7 @@ import {
   Pencil,
   Trash2,
   Inbox,
+  Copy,
 } from "lucide-react";
 import {
   formatarCNJ,
@@ -489,6 +490,7 @@ export default function Home() {
                       onAtualizarEste={() =>
                         handleAtualizarEste(p.id, p.apelido || formatarCNJ(p.numero))
                       }
+                      toast={toast}
                       atualizandoEste={atualizandoIds.has(p.id)}
                     />
                   ))}
@@ -536,6 +538,7 @@ function LinhaProcesso({
   onDelete,
   onAtualizarEste,
   atualizandoEste,
+  toast,
 }: {
   p: any;
   aba: "painel" | "processos";
@@ -545,6 +548,7 @@ function LinhaProcesso({
   onDelete: () => void;
   onAtualizarEste: () => void;
   atualizandoEste: boolean;
+  toast: ReturnType<typeof useToast>["toast"];
 }) {
   const titulo = p.apelido || formatarCNJ(p.numero);
   const naoEncontrado = p._status === "nao_encontrado";
@@ -703,6 +707,30 @@ function LinhaProcesso({
           )}
 
           <div className="flex items-center gap-2 pl-6 mb-4">
+            <Button
+              variant="outline"
+              size="sm"
+              data-testid={`button-copiar-${p.id}`}
+              onClick={async () => {
+                const cnj = formatarCNJ(p.numero);
+                try {
+                  await navigator.clipboard.writeText(cnj);
+                  toast({
+                    title: "Número copiado",
+                    description: cnj,
+                  });
+                } catch {
+                  toast({
+                    title: "Não consegui copiar",
+                    description: cnj,
+                    variant: "destructive",
+                  });
+                }
+              }}
+              title="Copiar o número CNJ formatado"
+            >
+              <Copy className="h-3.5 w-3.5 mr-1.5" /> Copiar número
+            </Button>
             <Button
               variant={segundoGrau ? "default" : "outline"}
               size="sm"
