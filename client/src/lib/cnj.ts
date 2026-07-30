@@ -70,8 +70,11 @@ export function urlPortal(tribunal: string, numero: string): string {
   if (tribunal === "TRF2") {
     return `https://processual.trf2.jus.br/consulta/numero?proc=${formatarCNJ(numero)}`;
   }
-  // TJRJ não aceita número via query — abre a consulta pública
-  return "https://www3.tjrj.jus.br/consultaprocessual/#/consultapublica";
+  // TJRJ: abre o Portal de Serviços (login com token/certificado). Uma vez
+  // logado, tem acesso completo aos autos dos processos em que é procurador,
+  // inclusive segredo de justiça. O número não vai via URL — o portal não
+  // aceita deep-link — mas fica disponível no card do painel pra colar.
+  return "https://www3.tjrj.jus.br/idserverjus-front/#/login?indGet=true&sgSist=PORTALSERVICOS";
 }
 
 // Última movimentação (data ISO) do _source

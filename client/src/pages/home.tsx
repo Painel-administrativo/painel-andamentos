@@ -86,7 +86,7 @@ export default function Home() {
       } else if (status === "2o_grau") {
         toast({
           title: "2º grau — acompanhamento manual",
-          description: `${apelido} — processos de 2º grau do TJRJ não são cobertos pelo Datajud. Consulte pelo portal.`,
+          description: `${apelido} — sem cobertura no Datajud. Acompanhe pelo Portal de Serviços (botão "Abrir no portal").`,
         });
       } else if (status === "nao_encontrado") {
         toast({
@@ -703,11 +703,30 @@ function LinhaProcesso({
           )}
 
           <div className="flex items-center gap-2 pl-6 mb-4">
-            <a href={urlPortal(p.tribunal, p.numero)} target="_blank" rel="noopener noreferrer">
-              <Button variant={segundoGrau ? "default" : "outline"} size="sm" data-testid={`button-portal-${p.id}`}>
-                <ExternalLink className="h-3.5 w-3.5 mr-1.5" /> Abrir no portal
-              </Button>
-            </a>
+            <Button
+              variant={segundoGrau ? "default" : "outline"}
+              size="sm"
+              data-testid={`button-portal-${p.id}`}
+              onClick={async () => {
+                // Para TJRJ (Portal de Serviços não aceita deep-link), copia o
+                // número pro clipboard automaticamente antes de abrir o portal.
+                // Para TRF2 o próprio deep-link já preenche o número.
+                if (p.tribunal === "TJRJ") {
+                  try {
+                    await navigator.clipboard.writeText(formatarCNJ(p.numero));
+                    toast({
+                      title: "Número copiado",
+                      description: `${formatarCNJ(p.numero)} · cole no Portal após logar`,
+                    });
+                  } catch {
+                    // Se clipboard falhar (contexto não-seguro), só abre
+                  }
+                }
+                window.open(urlPortal(p.tribunal, p.numero), "_blank", "noopener,noreferrer");
+              }}
+            >
+              <ExternalLink className="h-3.5 w-3.5 mr-1.5" /> Abrir no portal
+            </Button>
             {!segundoGrau && (
               <Button
                 variant="outline"
