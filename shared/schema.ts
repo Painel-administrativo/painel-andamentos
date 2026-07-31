@@ -14,6 +14,10 @@ export interface Processo {
   tribunal: string;
   apelido: string | null;
   observacoes: string | null;
+  // ISO timestamp da última movimentação que o usuário marcou como lida.
+  // Se a última movimentação do snapshot for mais recente que este valor,
+  // o processo é exibido como "não lido". null = nunca marcado como lido.
+  vistoAte: string | null;
 }
 
 export interface Snapshot {

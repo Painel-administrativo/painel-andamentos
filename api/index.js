@@ -48908,7 +48908,10 @@ function mapProcesso(r) {
     numero: r.numero,
     tribunal: r.tribunal,
     apelido: r.apelido,
-    observacoes: r.observacoes
+    observacoes: r.observacoes,
+    // Se a coluna ainda não existe no banco (migration pendente), o supabase-js
+    // retorna undefined; normalizamos para null.
+    vistoAte: r.visto_ate ?? null
   };
 }
 function mapSnapshot(r) {
@@ -48994,6 +48997,19 @@ var SupabaseStorage = class {
     const { data, error } = await supabase.from("snapshots").select("*").eq("processo_id", processoId).order("consultado_em", { ascending: false }).limit(1).maybeSingle();
     if (error) throw new Error(error.message);
     return data ? mapSnapshot(data) : void 0;
+  }
+  async setVistoAte(id, vistoAte) {
+    const { data, error } = await supabase.from("processos").update({ visto_ate: vistoAte }).eq("id", id).select().maybeSingle();
+    if (error) {
+      const msg = error.message || "";
+      if (msg.includes("visto_ate") || error.code === "42703") {
+        throw new Error(
+          "Coluna 'visto_ate' n\xE3o existe. Rode o SQL de migration em scripts/migration-visto-ate.sql no dashboard do Supabase."
+        );
+      }
+      throw new Error(msg);
+    }
+    return data ? mapProcesso(data) : void 0;
   }
   async upsertSnapshot(processoId, data) {
     const payload = {
@@ -53212,6 +53228,36 @@ async function registerRoutes(httpServer, app2) {
     if (parsed.data.observacoes !== void 0)
       patch.observacoes = parsed.data.observacoes || null;
     const updated = await storage.updateProcesso(id, patch);
+    if (!updated) return res.status(404).json({ erro: "Processo n\xE3o encontrado" });
+    res.json(updated);
+  });
+  app2.patch("/api/processos/:id/visto", async (req, res) => {
+    const id = Number(req.params.id);
+    const p = await storage.getProcesso(id);
+    if (!p) return res.status(404).json({ erro: "Processo n\xE3o encontrado" });
+    let vistoAte;
+    if (req.body && req.body.vistoAte === null) {
+      vistoAte = null;
+    } else if (req.body && typeof req.body.vistoAte === "string") {
+      vistoAte = req.body.vistoAte;
+    } else {
+      const snap = await storage.getLatestSnapshot(id);
+      let ultima = null;
+      if (snap && snap.dadosJson) {
+        try {
+          const dados = JSON.parse(snap.dadosJson);
+          const movs = dados.movimentos ?? [];
+          for (const m of movs) {
+            if (!ultima || new Date(m.dataHora) > new Date(ultima)) {
+              ultima = m.dataHora;
+            }
+          }
+        } catch {
+        }
+      }
+      vistoAte = ultima ?? (/* @__PURE__ */ new Date()).toISOString();
+    }
+    const updated = await storage.setVistoAte(id, vistoAte);
     if (!updated) return res.status(404).json({ erro: "Processo n\xE3o encontrado" });
     res.json(updated);
   });

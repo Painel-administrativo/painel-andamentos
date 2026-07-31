@@ -44,6 +44,7 @@ interface ProcessoRow {
   tribunal: string;
   apelido: string | null;
   observacoes: string | null;
+  visto_ate: string | null;
 }
 
 interface SnapshotRow {
@@ -62,6 +63,9 @@ function mapProcesso(r: ProcessoRow): Processo {
     tribunal: r.tribunal,
     apelido: r.apelido,
     observacoes: r.observacoes,
+    // Se a coluna ainda não existe no banco (migration pendente), o supabase-js
+    // retorna undefined; normalizamos para null.
+    vistoAte: r.visto_ate ?? null,
   };
 }
 
@@ -107,6 +111,8 @@ export interface IStorage {
     processoId: number,
     data: { status: string; erro?: string | null; dados?: DatajudSource | null }
   ): Promise<Snapshot>;
+  // vistoAte = null limpa a marcação (volta a ficar "não lido")
+  setVistoAte(id: number, vistoAte: string | null): Promise<Processo | undefined>;
 }
 
 // ============================================================
@@ -213,6 +219,29 @@ export class SupabaseStorage implements IStorage {
       .maybeSingle();
     if (error) throw new Error(error.message);
     return data ? mapSnapshot(data as SnapshotRow) : undefined;
+  }
+
+  async setVistoAte(
+    id: number,
+    vistoAte: string | null,
+  ): Promise<Processo | undefined> {
+    const { data, error } = await supabase
+      .from("processos")
+      .update({ visto_ate: vistoAte })
+      .eq("id", id)
+      .select()
+      .maybeSingle();
+    if (error) {
+      // Se a migration ainda não foi rodada, o Postgres retorna 42703 (undefined_column)
+      const msg = error.message || "";
+      if (msg.includes("visto_ate") || (error as any).code === "42703") {
+        throw new Error(
+          "Coluna 'visto_ate' não existe. Rode o SQL de migration em scripts/migration-visto-ate.sql no dashboard do Supabase.",
+        );
+      }
+      throw new Error(msg);
+    }
+    return data ? mapProcesso(data as ProcessoRow) : undefined;
   }
 
   async upsertSnapshot(

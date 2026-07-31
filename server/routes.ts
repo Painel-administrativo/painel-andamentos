@@ -198,6 +198,44 @@ export async function registerRoutes(
     res.json(updated);
   });
 
+  // Marca um processo como lido (visto_ate = data da última movimentação atual).
+  // Se o body trouxer { vistoAte: null }, limpa a marcação (volta a não lido).
+  app.patch("/api/processos/:id/visto", async (req, res) => {
+    const id = Number(req.params.id);
+    const p = await storage.getProcesso(id);
+    if (!p) return res.status(404).json({ erro: "Processo não encontrado" });
+
+    let vistoAte: string | null;
+    if (req.body && req.body.vistoAte === null) {
+      vistoAte = null;
+    } else if (req.body && typeof req.body.vistoAte === "string") {
+      vistoAte = req.body.vistoAte;
+    } else {
+      // Default: marca com a data da última movimentação atual (busca do snapshot)
+      const snap = await storage.getLatestSnapshot(id);
+      let ultima: string | null = null;
+      if (snap && snap.dadosJson) {
+        try {
+          const dados = JSON.parse(snap.dadosJson) as DatajudSource;
+          const movs = dados.movimentos ?? [];
+          for (const m of movs) {
+            if (!ultima || new Date(m.dataHora) > new Date(ultima)) {
+              ultima = m.dataHora;
+            }
+          }
+        } catch {
+          // ignore
+        }
+      }
+      // Se não tem movimentação (processo novo/erro), usa agora para "limpar" a fila
+      vistoAte = ultima ?? new Date().toISOString();
+    }
+
+    const updated = await storage.setVistoAte(id, vistoAte);
+    if (!updated) return res.status(404).json({ erro: "Processo não encontrado" });
+    res.json(updated);
+  });
+
   // Deleta um processo
   app.delete("/api/processos/:id", async (req, res) => {
     const id = Number(req.params.id);

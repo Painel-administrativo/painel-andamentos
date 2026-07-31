@@ -38,6 +38,7 @@ import {
   Trash2,
   Inbox,
   Copy,
+  Mail,
 } from "lucide-react";
 import {
   formatarCNJ,
@@ -58,6 +59,7 @@ export default function Home() {
   const [busca, setBusca] = useState("");
   const [filtroTribunal, setFiltroTribunal] = useState<"Todos" | "TJRJ" | "TRF2">("Todos");
   const [soRecentes, setSoRecentes] = useState(false);
+  const [soNaoLidos, setSoNaoLidos] = useState(false);
 
   const [addOpen, setAddOpen] = useState(false);
   const [bulkOpen, setBulkOpen] = useState(false);
@@ -217,6 +219,12 @@ export default function Home() {
         const orgao = p.dados?.orgaoJulgador?.nome ?? null;
         const recente = um.data ? agora - new Date(um.data).getTime() <= TRINTA_DIAS : false;
         const status = p.snapshot?.status ?? "pendente";
+        // "Não lido" = tem última movimentação E (nunca marcou como lido OU
+        // marcou antes desta movimentação). Vale só pra status ok/pendentes com
+        // movimentação — processos sem dados, com erro ou 2º grau não entram.
+        const naoLido = !!um.data && (
+          !p.vistoAte || new Date(um.data).getTime() > new Date(p.vistoAte).getTime()
+        );
         return {
           ...p,
           _ultimaData: um.data,
@@ -224,21 +232,31 @@ export default function Home() {
           _classe: classe,
           _orgao: orgao,
           _recente: recente,
+          _naoLido: naoLido,
           _status: status,
         };
       })
       .sort((a, b) => {
+        // Prioridade: não lidos primeiro, depois por data desc
+        if (a._naoLido !== b._naoLido) return a._naoLido ? -1 : 1;
         const ta = a._ultimaData ? new Date(a._ultimaData).getTime() : 0;
         const tb = b._ultimaData ? new Date(b._ultimaData).getTime() : 0;
         return tb - ta;
       });
   }, [processos]);
 
+  // Total de não lidos (pra chip no filtro)
+  const totalNaoLidos = useMemo(
+    () => enriquecidos.filter((p) => p._naoLido).length,
+    [enriquecidos],
+  );
+
   const filtrados = useMemo(() => {
     const q = busca.trim().toLowerCase();
     return enriquecidos.filter((p) => {
       if (filtroTribunal !== "Todos" && p.tribunal !== filtroTribunal) return false;
       if (soRecentes && !p._recente) return false;
+      if (soNaoLidos && !p._naoLido) return false;
       if (q) {
         const alvo = [
           p.apelido ?? "",
@@ -253,7 +271,29 @@ export default function Home() {
       }
       return true;
     });
-  }, [enriquecidos, busca, filtroTribunal, soRecentes]);
+  }, [enriquecidos, busca, filtroTribunal, soRecentes, soNaoLidos]);
+
+  // Marca processo como lido (chamado ao expandir, se estiver não lido).
+  // Silencioso: sem toast, sem invalidar cache imediatamente — só refetch.
+  async function marcarComoLido(id: number) {
+    try {
+      await apiRequest("PATCH", `/api/processos/${id}/visto`, {});
+      queryClient.invalidateQueries({ queryKey: ["/api/processos"] });
+    } catch {
+      // silencioso — se falhar, o processo continua marcado como não lido
+    }
+  }
+
+  // Marca processo como não lido (botão explícito no card expandido)
+  async function marcarComoNaoLido(id: number) {
+    try {
+      await apiRequest("PATCH", `/api/processos/${id}/visto`, { vistoAte: null });
+      queryClient.invalidateQueries({ queryKey: ["/api/processos"] });
+      toast({ title: "Marcado como não lido" });
+    } catch (e: any) {
+      toast({ title: "Falha ao marcar", description: e?.message, variant: "destructive" });
+    }
+  }
 
   const semProcessos = !isLoading && processos.length === 0;
 
@@ -412,6 +452,17 @@ export default function Home() {
               </div>
               <div className="flex items-center gap-2">
                 <Switch
+                  id="nao-lidos"
+                  checked={soNaoLidos}
+                  onCheckedChange={setSoNaoLidos}
+                  data-testid="switch-nao-lidos"
+                />
+                <Label htmlFor="nao-lidos" className="text-sm text-muted-foreground cursor-pointer">
+                  Só não lidos{totalNaoLidos > 0 ? ` (${totalNaoLidos})` : ""}
+                </Label>
+              </div>
+              <div className="flex items-center gap-2">
+                <Switch
                   id="recentes"
                   checked={soRecentes}
                   onCheckedChange={setSoRecentes}
@@ -490,6 +541,8 @@ export default function Home() {
                       onAtualizarEste={() =>
                         handleAtualizarEste(p.id, p.apelido || formatarCNJ(p.numero))
                       }
+                      onMarcarLido={() => marcarComoLido(p.id)}
+                      onMarcarNaoLido={() => marcarComoNaoLido(p.id)}
                       toast={toast}
                       atualizandoEste={atualizandoIds.has(p.id)}
                     />
@@ -537,6 +590,8 @@ function LinhaProcesso({
   onEdit,
   onDelete,
   onAtualizarEste,
+  onMarcarLido,
+  onMarcarNaoLido,
   atualizandoEste,
   toast,
 }: {
@@ -547,6 +602,8 @@ function LinhaProcesso({
   onEdit: () => void;
   onDelete: () => void;
   onAtualizarEste: () => void;
+  onMarcarLido: () => void;
+  onMarcarNaoLido: () => void;
   atualizandoEste: boolean;
   toast: ReturnType<typeof useToast>["toast"];
 }) {
@@ -559,7 +616,13 @@ function LinhaProcesso({
     <li className="text-sm" data-testid={`row-processo-${p.id}`}>
       <div
         className="grid grid-cols-1 lg:grid-cols-[minmax(0,2.5fr)_88px_minmax(0,1.6fr)_minmax(0,2fr)_128px_40px] gap-x-3 gap-y-1 px-4 py-3 hover-elevate cursor-pointer items-center"
-        onClick={onToggle}
+        onClick={() => {
+          // Ao expandir um processo não lido, marca como lido automaticamente
+          if (!expandido && p._naoLido) {
+            onMarcarLido();
+          }
+          onToggle();
+        }}
       >
         {/* Processo */}
         <div className="min-w-0">
@@ -568,9 +631,19 @@ function LinhaProcesso({
               className={`h-4 w-4 shrink-0 text-muted-foreground transition-transform ${expandido ? "rotate-90" : ""}`}
             />
             <span className="font-medium text-foreground truncate">{titulo}</span>
-            {p._recente && !naoEncontrado && !erro && !segundoGrau && (
-              <Badge className="bg-primary text-primary-foreground shrink-0" data-testid={`badge-novo-${p.id}`}>
-                Novo
+            {p._naoLido && !naoEncontrado && !erro && !segundoGrau && (
+              <Badge className="bg-primary text-primary-foreground shrink-0" data-testid={`badge-nao-lido-${p.id}`}>
+                Não lido
+              </Badge>
+            )}
+            {p._recente && !p._naoLido && !naoEncontrado && !erro && !segundoGrau && (
+              <Badge
+                variant="outline"
+                className="text-blue-700 dark:text-blue-300 border-blue-400/50 bg-blue-50 dark:bg-blue-950/30 shrink-0"
+                data-testid={`badge-recente-${p.id}`}
+                title="Movimentação processual nos últimos 30 dias"
+              >
+                Recente
               </Badge>
             )}
             {segundoGrau && (
@@ -789,6 +862,17 @@ function LinhaProcesso({
               >
                 <RefreshCw className={`h-3.5 w-3.5 mr-1.5 ${atualizandoEste ? "animate-spin" : ""}`} />{" "}
                 {atualizandoEste ? "Atualizando..." : "Atualizar este"}
+              </Button>
+            )}
+            {!segundoGrau && !p._naoLido && p._ultimaData && (
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={onMarcarNaoLido}
+                data-testid={`button-marcar-nao-lido-${p.id}`}
+                title="Voltar este processo para a fila de não lidos"
+              >
+                <Mail className="h-3.5 w-3.5 mr-1.5" /> Marcar como não lido
               </Button>
             )}
             <Button variant="ghost" size="sm" onClick={onEdit} data-testid={`button-editar-exp-${p.id}`}>
