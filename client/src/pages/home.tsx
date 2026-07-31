@@ -1,4 +1,4 @@
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect, useRef } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
@@ -177,6 +177,8 @@ export default function Home() {
       const resp = await apiRequest("POST", endpoint, {});
       const data = await resp.json();
       setUltimaAtualizacao(data.atualizadoEm);
+      // Rebase do Set congelado assim que os dados novos chegarem
+      rebaseNaoLidos();
       queryClient.invalidateQueries({ queryKey: ["/api/processos"] });
       const partes = [
         `${data.ok} ok`,
@@ -209,6 +211,52 @@ export default function Home() {
     }
   }
 
+  // Marcação "não lido" tem dois estados: o "vivo" (do banco) e o "visual"
+  // (o que o usuário vê na tela). O visual congela no momento do carregamento
+  // e só se atualiza no próximo refresh manual (F5) ou "Atualizar tudo".
+  // Assim, ao clicar num card não-lido, ele não "pula" pra outra posição da
+  // lista imediatamente — a linha permanece visível para exame.
+  const [naoLidosCongelados, setNaoLidosCongelados] = useState<Set<number> | null>(null);
+
+  // Função pura para calcular "não lido" a partir dos dados vivos
+  function calcularNaoLido(p: ProcessoComSnapshot): boolean {
+    const um = ultimaMovimentacao(p.dados);
+    return !!um.data && (
+      !p.vistoAte || new Date(um.data).getTime() > new Date(p.vistoAte).getTime()
+    );
+  }
+
+  // Flag que sinaliza "na próxima chegada de dados frescos, refaça o Set do zero"
+  const [rebasePendente, setRebasePendente] = useState(true);
+
+  // Reconcilia o Set congelado com os dados atuais
+  useEffect(() => {
+    if (processos.length === 0) return;
+    setNaoLidosCongelados((prev) => {
+      // Rebase total: primeira carga OU refresh manual pediu
+      if (prev === null || rebasePendente) {
+        return new Set(processos.filter(calcularNaoLido).map((p) => p.id));
+      }
+      // Preserva o estado visual atual, mas adiciona IDs novos:
+      // - processos recém-cadastrados (podem estar não lidos)
+      // - processos que ganharam movimentação nova após cron enquanto a página estava aberta
+      const next = new Set(prev);
+      for (const p of processos) {
+        if (!prev.has(p.id) && calcularNaoLido(p)) {
+          next.add(p.id);
+        }
+      }
+      return next;
+    });
+    if (rebasePendente) setRebasePendente(false);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [processos, rebasePendente]);
+
+  // Função pra pedir rebase (botão "Atualizar tudo")
+  function rebaseNaoLidos() {
+    setRebasePendente(true);
+  }
+
   // Enriquecimento + ordenação + filtros
   const enriquecidos = useMemo(() => {
     const agora = Date.now();
@@ -219,12 +267,8 @@ export default function Home() {
         const orgao = p.dados?.orgaoJulgador?.nome ?? null;
         const recente = um.data ? agora - new Date(um.data).getTime() <= TRINTA_DIAS : false;
         const status = p.snapshot?.status ?? "pendente";
-        // "Não lido" = tem última movimentação E (nunca marcou como lido OU
-        // marcou antes desta movimentação). Vale só pra status ok/pendentes com
-        // movimentação — processos sem dados, com erro ou 2º grau não entram.
-        const naoLido = !!um.data && (
-          !p.vistoAte || new Date(um.data).getTime() > new Date(p.vistoAte).getTime()
-        );
+        // "Não lido" usa o Set congelado — só muda em rebase manual.
+        const naoLido = naoLidosCongelados ? naoLidosCongelados.has(p.id) : calcularNaoLido(p);
         return {
           ...p,
           _ultimaData: um.data,
@@ -237,13 +281,13 @@ export default function Home() {
         };
       })
       .sort((a, b) => {
-        // Prioridade: não lidos primeiro, depois por data desc
+        // Prioridade: não lidos primeiro (usando o Set congelado), depois por data desc
         if (a._naoLido !== b._naoLido) return a._naoLido ? -1 : 1;
         const ta = a._ultimaData ? new Date(a._ultimaData).getTime() : 0;
         const tb = b._ultimaData ? new Date(b._ultimaData).getTime() : 0;
         return tb - ta;
       });
-  }, [processos]);
+  }, [processos, naoLidosCongelados]);
 
   // Total de não lidos (pra chip no filtro)
   const totalNaoLidos = useMemo(
@@ -273,21 +317,39 @@ export default function Home() {
     });
   }, [enriquecidos, busca, filtroTribunal, soRecentes, soNaoLidos]);
 
-  // Marca processo como lido (chamado ao expandir, se estiver não lido).
-  // Silencioso: sem toast, sem invalidar cache imediatamente — só refetch.
+  // Guard pra evitar PATCHes duplicados (React StrictMode/re-render em dev
+  // ou clique disparando duas vezes)
+  const marcandoLidoRef = useRef<Set<number>>(new Set());
+
+  // Marca processo como lido no backend (silencioso). Não invalida a query —
+  // o vistoAte no cliente não precisa refletir imediatamente na UI; o Set
+  // congelado é quem controla o visual.
   async function marcarComoLido(id: number) {
+    if (marcandoLidoRef.current.has(id)) return;
+    marcandoLidoRef.current.add(id);
     try {
       await apiRequest("PATCH", `/api/processos/${id}/visto`, {});
-      queryClient.invalidateQueries({ queryKey: ["/api/processos"] });
+      // Não invalidamos a query — só persistimos no banco. A remoção da
+      // etiqueta acontece no próximo rebase manual (F5 ou Atualizar tudo).
     } catch {
-      // silencioso — se falhar, o processo continua marcado como não lido
+      // silencioso
+    } finally {
+      marcandoLidoRef.current.delete(id);
     }
   }
 
-  // Marca processo como não lido (botão explícito no card expandido)
+  // Marca processo como não lido (botão explícito no card expandido).
+  // Aqui SIM atualizamos a UI imediatamente — o usuário pediu explicitamente
+  // e espera ver o efeito.
   async function marcarComoNaoLido(id: number) {
     try {
       await apiRequest("PATCH", `/api/processos/${id}/visto`, { vistoAte: null });
+      // Adiciona ao Set congelado (visualmente volta a não lido)
+      setNaoLidosCongelados((prev) => {
+        const next = new Set(prev ?? []);
+        next.add(id);
+        return next;
+      });
       queryClient.invalidateQueries({ queryKey: ["/api/processos"] });
       toast({ title: "Marcado como não lido" });
     } catch (e: any) {
