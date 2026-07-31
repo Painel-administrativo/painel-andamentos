@@ -4,7 +4,7 @@
 //  - Navegações (HTML): network-first com fallback pro cache (sempre pega versão nova quando online)
 //  - API (/api/, /port/5000/): sempre rede (dados sempre frescos, nunca em cache)
 
-const CACHE_VERSION = "v5";
+const CACHE_VERSION = "v6";
 const CACHE_NAME = `painel-andamentos-${CACHE_VERSION}`;
 
 // Precache mínimo — o resto é cacheado sob demanda
