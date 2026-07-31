@@ -211,13 +211,6 @@ export default function Home() {
     }
   }
 
-  // Marcação "não lido" tem dois estados: o "vivo" (do banco) e o "visual"
-  // (o que o usuário vê na tela). O visual congela no momento do carregamento
-  // e só se atualiza no próximo refresh manual (F5) ou "Atualizar tudo".
-  // Assim, ao clicar num card não-lido, ele não "pula" pra outra posição da
-  // lista imediatamente — a linha permanece visível para exame.
-  const [naoLidosCongelados, setNaoLidosCongelados] = useState<Set<number> | null>(null);
-
   // Função pura para calcular "não lido" a partir dos dados vivos
   function calcularNaoLido(p: ProcessoComSnapshot): boolean {
     const um = ultimaMovimentacao(p.dados);
@@ -226,35 +219,14 @@ export default function Home() {
     );
   }
 
-  // Flag que sinaliza "na próxima chegada de dados frescos, refaça o Set do zero"
-  const [rebasePendente, setRebasePendente] = useState(true);
+  // Ordem congelada enquanto um card está expandido — evita que a linha
+  // "pule" pra outra posição ao marcar como lido. A ordem é recalculada
+  // quando o card fecha.
+  const [ordemCongelada, setOrdemCongelada] = useState<Map<number, number> | null>(null);
 
-  // Reconcilia o Set congelado com os dados atuais
-  useEffect(() => {
-    if (processos.length === 0) return;
-    setNaoLidosCongelados((prev) => {
-      // Rebase total: primeira carga OU refresh manual pediu
-      if (prev === null || rebasePendente) {
-        return new Set(processos.filter(calcularNaoLido).map((p) => p.id));
-      }
-      // Preserva o estado visual atual, mas adiciona IDs novos:
-      // - processos recém-cadastrados (podem estar não lidos)
-      // - processos que ganharam movimentação nova após cron enquanto a página estava aberta
-      const next = new Set(prev);
-      for (const p of processos) {
-        if (!prev.has(p.id) && calcularNaoLido(p)) {
-          next.add(p.id);
-        }
-      }
-      return next;
-    });
-    if (rebasePendente) setRebasePendente(false);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [processos, rebasePendente]);
-
-  // Função pra pedir rebase (botão "Atualizar tudo")
+  // Função pra rebasear manualmente (não usada mais, mas mantida por segurança)
   function rebaseNaoLidos() {
-    setRebasePendente(true);
+    setOrdemCongelada(null);
   }
 
   // Enriquecimento + ordenação + filtros
@@ -267,8 +239,9 @@ export default function Home() {
         const orgao = p.dados?.orgaoJulgador?.nome ?? null;
         const recente = um.data ? agora - new Date(um.data).getTime() <= TRINTA_DIAS : false;
         const status = p.snapshot?.status ?? "pendente";
-        // "Não lido" usa o Set congelado — só muda em rebase manual.
-        const naoLido = naoLidosCongelados ? naoLidosCongelados.has(p.id) : calcularNaoLido(p);
+        // "Não lido" é sempre calculado dos dados vivos (etiqueta some assim que
+        // o backend confirma). O que congela é só a **ordem** da lista.
+        const naoLido = calcularNaoLido(p);
         return {
           ...p,
           _ultimaData: um.data,
@@ -281,13 +254,19 @@ export default function Home() {
         };
       })
       .sort((a, b) => {
-        // Prioridade: não lidos primeiro (usando o Set congelado), depois por data desc
+        // Se há ordem congelada (card expandido), usa ela
+        if (ordemCongelada) {
+          const oa = ordemCongelada.get(a.id) ?? Number.MAX_SAFE_INTEGER;
+          const ob = ordemCongelada.get(b.id) ?? Number.MAX_SAFE_INTEGER;
+          if (oa !== ob) return oa - ob;
+        }
+        // Ordem natural: não lidos primeiro, depois por data desc
         if (a._naoLido !== b._naoLido) return a._naoLido ? -1 : 1;
         const ta = a._ultimaData ? new Date(a._ultimaData).getTime() : 0;
         const tb = b._ultimaData ? new Date(b._ultimaData).getTime() : 0;
         return tb - ta;
       });
-  }, [processos, naoLidosCongelados]);
+  }, [processos, ordemCongelada]);
 
   // Total de não lidos (pra chip no filtro)
   const totalNaoLidos = useMemo(
@@ -317,20 +296,17 @@ export default function Home() {
     });
   }, [enriquecidos, busca, filtroTribunal, soRecentes, soNaoLidos]);
 
-  // Guard pra evitar PATCHes duplicados (React StrictMode/re-render em dev
-  // ou clique disparando duas vezes)
+  // Guard pra evitar PATCHes duplicados (React re-render, clique duplo)
   const marcandoLidoRef = useRef<Set<number>>(new Set());
 
-  // Marca processo como lido no backend (silencioso). Não invalida a query —
-  // o vistoAte no cliente não precisa refletir imediatamente na UI; o Set
-  // congelado é quem controla o visual.
+  // Marca processo como lido no backend + invalida query pra etiqueta sumir.
+  // A ordem é congelada externamente por handleToggle antes de chamar.
   async function marcarComoLido(id: number) {
     if (marcandoLidoRef.current.has(id)) return;
     marcandoLidoRef.current.add(id);
     try {
       await apiRequest("PATCH", `/api/processos/${id}/visto`, {});
-      // Não invalidamos a query — só persistimos no banco. A remoção da
-      // etiqueta acontece no próximo rebase manual (F5 ou Atualizar tudo).
+      queryClient.invalidateQueries({ queryKey: ["/api/processos"] });
     } catch {
       // silencioso
     } finally {
@@ -338,22 +314,31 @@ export default function Home() {
     }
   }
 
-  // Marca processo como não lido (botão explícito no card expandido).
-  // Aqui SIM atualizamos a UI imediatamente — o usuário pediu explicitamente
-  // e espera ver o efeito.
+  // Marca processo como não lido (botão explícito no card expandido)
   async function marcarComoNaoLido(id: number) {
     try {
       await apiRequest("PATCH", `/api/processos/${id}/visto`, { vistoAte: null });
-      // Adiciona ao Set congelado (visualmente volta a não lido)
-      setNaoLidosCongelados((prev) => {
-        const next = new Set(prev ?? []);
-        next.add(id);
-        return next;
-      });
       queryClient.invalidateQueries({ queryKey: ["/api/processos"] });
       toast({ title: "Marcado como não lido" });
     } catch (e: any) {
       toast({ title: "Falha ao marcar", description: e?.message, variant: "destructive" });
+    }
+  }
+
+  // Toggle expandir/recolher com congelamento de ordem.
+  // Ao expandir: congela a ordem atual (snapshot dos IDs em posição)
+  // Ao recolher: descongela (lista reordena naturalmente)
+  function handleToggleExpandido(id: number) {
+    if (expandido === id) {
+      // Recolhendo: libera a ordem
+      setExpandido(null);
+      setOrdemCongelada(null);
+    } else {
+      // Expandindo: congela a ordem atual antes de tudo
+      const ordem = new Map<number, number>();
+      filtrados.forEach((p, idx) => ordem.set(p.id, idx));
+      setOrdemCongelada(ordem);
+      setExpandido(id);
     }
   }
 
@@ -594,7 +579,7 @@ export default function Home() {
                       p={p}
                       aba={aba}
                       expandido={expandido === p.id}
-                      onToggle={() => setExpandido(expandido === p.id ? null : p.id)}
+                      onToggle={() => handleToggleExpandido(p.id)}
                       onEdit={() => {
                         setEditando(p);
                         setAddOpen(true);
