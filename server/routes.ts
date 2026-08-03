@@ -291,17 +291,43 @@ export async function registerRoutes(
     });
   });
 
-  // Atualiza andamentos: consulta Datajud para TODOS os processos.
+  // Atualiza andamentos: consulta Datajud para os processos.
   // Para processos com cara de 2º grau que não forem achados, marca como
   // "2o_grau" (fallback → acompanhamento manual pelo portal).
-  app.post("/api/processos/atualizar", async (_req, res) => {
+  //
+  // PAGINAÇÃO (?limite=N&offset=M): o limite de 60s da função serverless no
+  // Vercel fazia a varredura completa morrer com FUNCTION_INVOCATION_TIMEOUT no
+  // meio da lista — sempre nos mesmos processos do fim da fila, que ficavam dias
+  // sem atualizar. Com `limite`, o chamador processa a lista em blocos e usa o
+  // `proximoOffset` retornado até `concluido: true`.
+  //
+  // Sem `limite`, o comportamento antigo (tudo de uma vez) é preservado para não
+  // quebrar o botão "Atualizar todos" do frontend.
+  //
+  // A ordenação de listProcessos é por id ascendente, então o fatiamento por
+  // offset é estável entre chamadas.
+  app.post("/api/processos/atualizar", async (req, res) => {
+    const iniciadoEm = Date.now();
     const lista = await storage.listProcessos();
+    const total = lista.length;
+
+    const limiteRaw = req.query.limite ?? req.body?.limite;
+    const offsetRaw = req.query.offset ?? req.body?.offset;
+    const paginado =
+      limiteRaw !== undefined && limiteRaw !== null && String(limiteRaw) !== "";
+
+    const limite = paginado
+      ? Math.max(1, Math.min(Number(limiteRaw) || 10, 100))
+      : total;
+    const offset = Math.max(0, Number(offsetRaw) || 0);
+    const fatia = paginado ? lista.slice(offset, offset + limite) : lista;
+
     let ok = 0;
     let naoEncontrado = 0;
     let erro = 0;
     let segundoGrau = 0;
 
-    await mapConcurrent(lista, 5, async (p) => {
+    await mapConcurrent(fatia, 5, async (p) => {
       let r = await consultarDatajud(p.numero, p.tribunal);
 
       // Fallback: se não achou E o processo tem cara de 2º grau, marca como 2o_grau
@@ -323,12 +349,21 @@ export async function registerRoutes(
       else erro++;
     });
 
+    const proximoOffset = offset + fatia.length;
+    const concluido = !paginado || proximoOffset >= total;
+
     res.json({
-      total: lista.length,
+      total,
+      processados: fatia.length,
+      offset,
+      limite: paginado ? limite : null,
+      proximoOffset: concluido ? null : proximoOffset,
+      concluido,
       ok,
       naoEncontrado,
       erro,
       segundoGrau,
+      duracaoMs: Date.now() - iniciadoEm,
       atualizadoEm: new Date().toISOString(),
     });
   });

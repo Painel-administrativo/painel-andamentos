@@ -53300,13 +53300,21 @@ async function registerRoutes(httpServer, app2) {
       }
     });
   });
-  app2.post("/api/processos/atualizar", async (_req, res) => {
+  app2.post("/api/processos/atualizar", async (req, res) => {
+    const iniciadoEm = Date.now();
     const lista = await storage.listProcessos();
+    const total = lista.length;
+    const limiteRaw = req.query.limite ?? req.body?.limite;
+    const offsetRaw = req.query.offset ?? req.body?.offset;
+    const paginado = limiteRaw !== void 0 && limiteRaw !== null && String(limiteRaw) !== "";
+    const limite = paginado ? Math.max(1, Math.min(Number(limiteRaw) || 10, 100)) : total;
+    const offset = Math.max(0, Number(offsetRaw) || 0);
+    const fatia = paginado ? lista.slice(offset, offset + limite) : lista;
     let ok = 0;
     let naoEncontrado = 0;
     let erro = 0;
     let segundoGrau = 0;
-    await mapConcurrent(lista, 5, async (p) => {
+    await mapConcurrent(fatia, 5, async (p) => {
       let r = await consultarDatajud(p.numero, p.tribunal);
       if (r.status === "nao_encontrado" && tem2oGrauFallback(p.numero, p.tribunal)) {
         r = { status: "2o_grau", dados: void 0, erro: void 0 };
@@ -53321,12 +53329,20 @@ async function registerRoutes(httpServer, app2) {
       else if (r.status === "2o_grau") segundoGrau++;
       else erro++;
     });
+    const proximoOffset = offset + fatia.length;
+    const concluido = !paginado || proximoOffset >= total;
     res.json({
-      total: lista.length,
+      total,
+      processados: fatia.length,
+      offset,
+      limite: paginado ? limite : null,
+      proximoOffset: concluido ? null : proximoOffset,
+      concluido,
       ok,
       naoEncontrado,
       erro,
       segundoGrau,
+      duracaoMs: Date.now() - iniciadoEm,
       atualizadoEm: (/* @__PURE__ */ new Date()).toISOString()
     });
   });
