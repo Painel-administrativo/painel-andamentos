@@ -1,5 +1,4 @@
-import { createClient, type SupabaseClient } from "@supabase/supabase-js";
-import WebSocket from "ws";
+import { Pool } from "pg";
 import type {
   Processo,
   InsertProcesso,
@@ -9,35 +8,34 @@ import type {
 } from "@shared/schema";
 
 // ============================================================
-// Cliente Supabase (Postgres gerenciado)
+// Pool Postgres (conecta direto no banco, ignora RLS)
 // ============================================================
-const SUPABASE_URL = process.env.SUPABASE_URL;
-const SUPABASE_ANON_KEY = process.env.SUPABASE_ANON_KEY;
+const DATABASE_URL = process.env.DATABASE_URL;
 
-if (!SUPABASE_URL || !SUPABASE_ANON_KEY) {
+if (!DATABASE_URL) {
   throw new Error(
-    "SUPABASE_URL e SUPABASE_ANON_KEY são obrigatórios (defina em .env local ou via credentials no publish)."
+    "DATABASE_URL é obrigatória (Session Pooler do Supabase). Configure em .env local ou Vercel."
   );
 }
 
-// O supabase-js v2 sempre instancia um RealtimeClient (mesmo sem usar).
-// Em Node <22 sem WebSocket global, precisa passar o transport manualmente.
-// Cast por causa da tipagem restrita do supabase-js.
-export const supabase: SupabaseClient = createClient(
-  SUPABASE_URL,
-  SUPABASE_ANON_KEY,
-  {
-    auth: { persistSession: false, autoRefreshToken: false },
-    realtime: { transport: WebSocket as unknown as never },
-  }
-);
+// Serverless-friendly: pool pequeno, timeouts curtos, ssl relaxado
+// (Supabase pooler exige SSL mas com CA gerenciado pelo provedor).
+export const pool = new Pool({
+  connectionString: DATABASE_URL,
+  ssl: { rejectUnauthorized: false },
+  max: 3,
+  idleTimeoutMillis: 10_000,
+  connectionTimeoutMillis: 10_000,
+});
+
+pool.on("error", (err) => {
+  // Não derruba o processo — só loga. O próximo checkout tentará reconectar.
+  console.error("[pg pool] erro idle:", err.message);
+});
 
 // ============================================================
-// Helpers
+// Tipos crus (rowset do Postgres) e mapeamento pro schema camelCase
 // ============================================================
-
-// Linha crua vinda do Postgres. As colunas usam snake_case; convertemos para
-// o formato Processo/Snapshot (camelCase parcial) que o frontend já espera.
 interface ProcessoRow {
   id: number;
   numero: string;
@@ -53,7 +51,7 @@ interface SnapshotRow {
   consultado_em: string;
   status: string;
   erro: string | null;
-  dados_json: unknown; // jsonb — vem já parseado pelo supabase-js
+  dados_json: unknown; // jsonb
 }
 
 function mapProcesso(r: ProcessoRow): Processo {
@@ -63,8 +61,6 @@ function mapProcesso(r: ProcessoRow): Processo {
     tribunal: r.tribunal,
     apelido: r.apelido,
     observacoes: r.observacoes,
-    // Se a coluna ainda não existe no banco (migration pendente), o supabase-js
-    // retorna undefined; normalizamos para null.
     vistoAte: r.visto_ate ?? null,
   };
 }
@@ -76,8 +72,7 @@ function mapSnapshot(r: SnapshotRow): Snapshot {
     consultadoEm: r.consultado_em,
     status: r.status,
     erro: r.erro,
-    // O tipo Snapshot originalmente esperava string (JSON serializado no SQLite).
-    // No Postgres/jsonb já vem como objeto; serializamos para manter compat com o tipo.
+    // Mantém compat com o tipo antigo (era string do SQLite)
     dadosJson: r.dados_json == null ? null : JSON.stringify(r.dados_json),
   };
 }
@@ -95,7 +90,7 @@ function parseDados(s: SnapshotRow | null | undefined): DatajudSource | null {
 }
 
 // ============================================================
-// Interface
+// Interface (mesma de antes — usada pelas routes)
 // ============================================================
 export interface IStorage {
   listProcessos(): Promise<ProcessoComSnapshot[]>;
@@ -111,28 +106,30 @@ export interface IStorage {
     processoId: number,
     data: { status: string; erro?: string | null; dados?: DatajudSource | null }
   ): Promise<Snapshot>;
-  // vistoAte = null limpa a marcação (volta a ficar "não lido")
   setVistoAte(id: number, vistoAte: string | null): Promise<Processo | undefined>;
 }
 
 // ============================================================
-// Implementação Supabase
+// Implementação com pg (Postgres direto, ignora RLS)
 // ============================================================
-export class SupabaseStorage implements IStorage {
+export class PgStorage implements IStorage {
   async listProcessos(): Promise<ProcessoComSnapshot[]> {
-    // Uma única query com join implícito via múltiplos selects — mais barato
-    // que N+1. Aqui usamos duas queries (processos + todos os snapshots) e
-    // combinamos em memória, o que é suficiente para dezenas/centenas de processos.
-    const [procRes, snapRes] = await Promise.all([
-      supabase.from("processos").select("*").order("id", { ascending: true }),
-      supabase.from("snapshots").select("*"),
+    // Duas queries paralelas (mais barato que N+1) + merge em memória.
+    // Só selecionamos colunas que usamos — cliente_id/ultima_mov_* ficam fora
+    // (colunas do painel do Arilson).
+    const [procs, snaps] = await Promise.all([
+      pool.query<ProcessoRow>(
+        `SELECT id, numero, tribunal, apelido, observacoes, visto_ate
+         FROM processos ORDER BY id ASC`
+      ),
+      pool.query<SnapshotRow>(
+        `SELECT id, processo_id, consultado_em, status, erro, dados_json
+         FROM snapshots`
+      ),
     ]);
-    if (procRes.error) throw new Error(procRes.error.message);
-    if (snapRes.error) throw new Error(snapRes.error.message);
 
     const snapsByProc = new Map<number, SnapshotRow>();
-    for (const s of (snapRes.data ?? []) as SnapshotRow[]) {
-      // Mantém o mais recente por processo (deve haver só um por unique constraint)
+    for (const s of snaps.rows) {
       const existing = snapsByProc.get(s.processo_id);
       if (
         !existing ||
@@ -142,7 +139,7 @@ export class SupabaseStorage implements IStorage {
       }
     }
 
-    return ((procRes.data ?? []) as ProcessoRow[]).map((row) => {
+    return procs.rows.map((row) => {
       const proc = mapProcesso(row);
       const snapRow = snapsByProc.get(row.id) ?? null;
       return {
@@ -154,28 +151,22 @@ export class SupabaseStorage implements IStorage {
   }
 
   async getProcesso(id: number): Promise<Processo | undefined> {
-    const { data, error } = await supabase
-      .from("processos")
-      .select("*")
-      .eq("id", id)
-      .maybeSingle();
-    if (error) throw new Error(error.message);
-    return data ? mapProcesso(data as ProcessoRow) : undefined;
+    const { rows } = await pool.query<ProcessoRow>(
+      `SELECT id, numero, tribunal, apelido, observacoes, visto_ate
+       FROM processos WHERE id = $1`,
+      [id]
+    );
+    return rows[0] ? mapProcesso(rows[0]) : undefined;
   }
 
   async createProcesso(p: InsertProcesso): Promise<Processo> {
-    const { data, error } = await supabase
-      .from("processos")
-      .insert({
-        numero: p.numero,
-        tribunal: p.tribunal,
-        apelido: p.apelido ?? null,
-        observacoes: p.observacoes ?? null,
-      })
-      .select()
-      .single();
-    if (error) throw new Error(error.message);
-    return mapProcesso(data as ProcessoRow);
+    const { rows } = await pool.query<ProcessoRow>(
+      `INSERT INTO processos (numero, tribunal, apelido, observacoes)
+       VALUES ($1, $2, $3, $4)
+       RETURNING id, numero, tribunal, apelido, observacoes, visto_ate`,
+      [p.numero, p.tribunal, p.apelido ?? null, p.observacoes ?? null]
+    );
+    return mapProcesso(rows[0]);
   }
 
   async updateProcesso(
@@ -183,87 +174,82 @@ export class SupabaseStorage implements IStorage {
     p: Partial<InsertProcesso>
   ): Promise<Processo | undefined> {
     if (Object.keys(p).length === 0) return this.getProcesso(id);
-    const patch: Record<string, unknown> = {};
-    if (p.numero !== undefined) patch.numero = p.numero;
-    if (p.tribunal !== undefined) patch.tribunal = p.tribunal;
-    if (p.apelido !== undefined) patch.apelido = p.apelido;
-    if (p.observacoes !== undefined) patch.observacoes = p.observacoes;
+    // SET dinâmico — só campos providos
+    const sets: string[] = [];
+    const vals: unknown[] = [];
+    let i = 1;
+    if (p.numero !== undefined) { sets.push(`numero = $${i++}`); vals.push(p.numero); }
+    if (p.tribunal !== undefined) { sets.push(`tribunal = $${i++}`); vals.push(p.tribunal); }
+    if (p.apelido !== undefined) { sets.push(`apelido = $${i++}`); vals.push(p.apelido); }
+    if (p.observacoes !== undefined) { sets.push(`observacoes = $${i++}`); vals.push(p.observacoes); }
+    vals.push(id);
 
-    const { data, error } = await supabase
-      .from("processos")
-      .update(patch)
-      .eq("id", id)
-      .select()
-      .maybeSingle();
-    if (error) throw new Error(error.message);
-    return data ? mapProcesso(data as ProcessoRow) : undefined;
+    const { rows } = await pool.query<ProcessoRow>(
+      `UPDATE processos SET ${sets.join(", ")}
+       WHERE id = $${i}
+       RETURNING id, numero, tribunal, apelido, observacoes, visto_ate`,
+      vals
+    );
+    return rows[0] ? mapProcesso(rows[0]) : undefined;
   }
 
   async deleteProcesso(id: number): Promise<boolean> {
-    // Snapshots são apagados em cascata (FK on delete cascade)
-    const { error, count } = await supabase
-      .from("processos")
-      .delete({ count: "exact" })
-      .eq("id", id);
-    if (error) throw new Error(error.message);
-    return (count ?? 0) > 0;
+    // Snapshots caem em cascata (FK on delete cascade)
+    const { rowCount } = await pool.query(
+      `DELETE FROM processos WHERE id = $1`,
+      [id]
+    );
+    return (rowCount ?? 0) > 0;
   }
 
   async getLatestSnapshot(processoId: number): Promise<Snapshot | undefined> {
-    const { data, error } = await supabase
-      .from("snapshots")
-      .select("*")
-      .eq("processo_id", processoId)
-      .order("consultado_em", { ascending: false })
-      .limit(1)
-      .maybeSingle();
-    if (error) throw new Error(error.message);
-    return data ? mapSnapshot(data as SnapshotRow) : undefined;
+    const { rows } = await pool.query<SnapshotRow>(
+      `SELECT id, processo_id, consultado_em, status, erro, dados_json
+       FROM snapshots
+       WHERE processo_id = $1
+       ORDER BY consultado_em DESC
+       LIMIT 1`,
+      [processoId]
+    );
+    return rows[0] ? mapSnapshot(rows[0]) : undefined;
   }
 
   async setVistoAte(
     id: number,
-    vistoAte: string | null,
+    vistoAte: string | null
   ): Promise<Processo | undefined> {
-    const { data, error } = await supabase
-      .from("processos")
-      .update({ visto_ate: vistoAte })
-      .eq("id", id)
-      .select()
-      .maybeSingle();
-    if (error) {
-      // Se a migration ainda não foi rodada, o Postgres retorna 42703 (undefined_column)
-      const msg = error.message || "";
-      if (msg.includes("visto_ate") || (error as any).code === "42703") {
-        throw new Error(
-          "Coluna 'visto_ate' não existe. Rode o SQL de migration em scripts/migration-visto-ate.sql no dashboard do Supabase.",
-        );
-      }
-      throw new Error(msg);
-    }
-    return data ? mapProcesso(data as ProcessoRow) : undefined;
+    const { rows } = await pool.query<ProcessoRow>(
+      `UPDATE processos SET visto_ate = $1
+       WHERE id = $2
+       RETURNING id, numero, tribunal, apelido, observacoes, visto_ate`,
+      [vistoAte, id]
+    );
+    return rows[0] ? mapProcesso(rows[0]) : undefined;
   }
 
   async upsertSnapshot(
     processoId: number,
     data: { status: string; erro?: string | null; dados?: DatajudSource | null }
   ): Promise<Snapshot> {
-    const payload = {
-      processo_id: processoId,
-      consultado_em: new Date().toISOString(),
-      status: data.status,
-      erro: data.erro ?? null,
-      dados_json: data.dados ?? null,
-    };
-    // Tabela tem unique(processo_id) — usa upsert por essa coluna
-    const { data: row, error } = await supabase
-      .from("snapshots")
-      .upsert(payload, { onConflict: "processo_id" })
-      .select()
-      .single();
-    if (error) throw new Error(error.message);
-    return mapSnapshot(row as SnapshotRow);
+    // ON CONFLICT em processo_id (unique) — atualiza o snapshot existente.
+    const { rows } = await pool.query<SnapshotRow>(
+      `INSERT INTO snapshots (processo_id, consultado_em, status, erro, dados_json)
+       VALUES ($1, now(), $2, $3, $4)
+       ON CONFLICT (processo_id) DO UPDATE SET
+         consultado_em = EXCLUDED.consultado_em,
+         status = EXCLUDED.status,
+         erro = EXCLUDED.erro,
+         dados_json = EXCLUDED.dados_json
+       RETURNING id, processo_id, consultado_em, status, erro, dados_json`,
+      [
+        processoId,
+        data.status,
+        data.erro ?? null,
+        data.dados == null ? null : JSON.stringify(data.dados),
+      ]
+    );
+    return mapSnapshot(rows[0]);
   }
 }
 
-export const storage: IStorage = new SupabaseStorage();
+export const storage: IStorage = new PgStorage();
