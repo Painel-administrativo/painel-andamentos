@@ -29139,7 +29139,8 @@ function mapProcesso(r) {
     tribunal: r.tribunal,
     apelido: r.apelido,
     observacoes: r.observacoes,
-    vistoAte: r.visto_ate ?? null
+    vistoAte: r.visto_ate ?? null,
+    vistoClicadoEm: r.visto_clicado_em ?? null
   };
 }
 function mapSnapshot(r) {
@@ -29168,7 +29169,7 @@ var PgStorage = class {
   async listProcessos() {
     const [procs, snaps] = await Promise.all([
       pool.query(
-        `SELECT id, numero, tribunal, apelido, observacoes, visto_ate
+        `SELECT id, numero, tribunal, apelido, observacoes, visto_ate, visto_clicado_em
          FROM processos ORDER BY id ASC`
       ),
       pool.query(
@@ -29195,7 +29196,7 @@ var PgStorage = class {
   }
   async getProcesso(id) {
     const { rows } = await pool.query(
-      `SELECT id, numero, tribunal, apelido, observacoes, visto_ate
+      `SELECT id, numero, tribunal, apelido, observacoes, visto_ate, visto_clicado_em
        FROM processos WHERE id = $1`,
       [id]
     );
@@ -29205,7 +29206,7 @@ var PgStorage = class {
     const { rows } = await pool.query(
       `INSERT INTO processos (numero, tribunal, apelido, observacoes)
        VALUES ($1, $2, $3, $4)
-       RETURNING id, numero, tribunal, apelido, observacoes, visto_ate`,
+       RETURNING id, numero, tribunal, apelido, observacoes, visto_ate, visto_clicado_em`,
       [p.numero, p.tribunal, p.apelido ?? null, p.observacoes ?? null]
     );
     return mapProcesso(rows[0]);
@@ -29235,7 +29236,7 @@ var PgStorage = class {
     const { rows } = await pool.query(
       `UPDATE processos SET ${sets.join(", ")}
        WHERE id = $${i}
-       RETURNING id, numero, tribunal, apelido, observacoes, visto_ate`,
+       RETURNING id, numero, tribunal, apelido, observacoes, visto_ate, visto_clicado_em`,
       vals
     );
     return rows[0] ? mapProcesso(rows[0]) : void 0;
@@ -29258,13 +29259,21 @@ var PgStorage = class {
     );
     return rows[0] ? mapSnapshot(rows[0]) : void 0;
   }
-  async setVistoAte(id, vistoAte) {
-    const { rows } = await pool.query(
-      `UPDATE processos SET visto_ate = $1
-       WHERE id = $2
-       RETURNING id, numero, tribunal, apelido, observacoes, visto_ate`,
-      [vistoAte, id]
-    );
+  async setVistoAte(id, vistoAte, vistoClicadoEm) {
+    let query;
+    let vals;
+    if (vistoClicadoEm === void 0) {
+      query = `UPDATE processos SET visto_ate = $1
+               WHERE id = $2
+               RETURNING id, numero, tribunal, apelido, observacoes, visto_ate, visto_clicado_em`;
+      vals = [vistoAte, id];
+    } else {
+      query = `UPDATE processos SET visto_ate = $1, visto_clicado_em = $2
+               WHERE id = $3
+               RETURNING id, numero, tribunal, apelido, observacoes, visto_ate, visto_clicado_em`;
+      vals = [vistoAte, vistoClicadoEm, id];
+    }
+    const { rows } = await pool.query(query, vals);
     return rows[0] ? mapProcesso(rows[0]) : void 0;
   }
   async upsertSnapshot(processoId, data) {
@@ -33499,8 +33508,10 @@ async function registerRoutes(httpServer, app2) {
     const p = await storage.getProcesso(id);
     if (!p) return res.status(404).json({ erro: "Processo n\xE3o encontrado" });
     let vistoAte;
+    let vistoClicadoEm = void 0;
     if (req.body && req.body.vistoAte === null) {
       vistoAte = null;
+      vistoClicadoEm = null;
     } else if (req.body && typeof req.body.vistoAte === "string") {
       vistoAte = req.body.vistoAte;
     } else {
@@ -33518,9 +33529,11 @@ async function registerRoutes(httpServer, app2) {
         } catch {
         }
       }
-      vistoAte = ultima ?? (/* @__PURE__ */ new Date()).toISOString();
+      const agora = (/* @__PURE__ */ new Date()).toISOString();
+      vistoAte = ultima ?? agora;
+      vistoClicadoEm = agora;
     }
-    const updated = await storage.setVistoAte(id, vistoAte);
+    const updated = await storage.setVistoAte(id, vistoAte, vistoClicadoEm);
     if (!updated) return res.status(404).json({ erro: "Processo n\xE3o encontrado" });
     res.json(updated);
   });

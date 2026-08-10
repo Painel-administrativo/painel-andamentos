@@ -923,13 +923,13 @@ function LinhaProcesso({
                 >
                   <Mail className="h-3.5 w-3.5 mr-1.5" /> Marcar como não lido
                 </Button>
-                {p.vistoAte && (
+                {p.vistoClicadoEm && (
                   <span
                     className="text-xs text-muted-foreground"
-                    title="Última vez que você marcou como visto"
+                    title="Data em que você marcou como visto"
                     data-testid={`text-visto-em-${p.id}`}
                   >
-                    Visto em {formatarDataHora(p.vistoAte)}
+                    Visto em {formatarDataHora(p.vistoClicadoEm)}
                   </span>
                 )}
               </div>

@@ -18,6 +18,9 @@ export interface Processo {
   // Se a última movimentação do snapshot for mais recente que este valor,
   // o processo é exibido como "não lido". null = nunca marcado como lido.
   vistoAte: string | null;
+  // Momento em que o usuário efetivamente clicou 'Marcar como visto'.
+  // Diferente de vistoAte (que refere-se à movimentação "vista até").
+  vistoClicadoEm: string | null;
 }
 
 export interface Snapshot {

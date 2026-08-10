@@ -34,18 +34,21 @@ export function formatarData(iso?: string | null): string {
   });
 }
 
-// Formata data+hora ISO como dd/mm/aaaa HH:mm
+// Formata data+hora ISO como "dd/mm/aaaa às HH:mm" (padrão português)
 export function formatarDataHora(iso?: string | null): string {
   if (!iso) return "—";
   const d = new Date(iso);
   if (isNaN(d.getTime())) return "—";
-  return d.toLocaleString("pt-BR", {
+  const data = d.toLocaleDateString("pt-BR", {
     day: "2-digit",
     month: "2-digit",
     year: "numeric",
+  });
+  const hora = d.toLocaleTimeString("pt-BR", {
     hour: "2-digit",
     minute: "2-digit",
   });
+  return `${data} às ${hora}`;
 }
 
 // "Atualizado há X" — tempo relativo em português

@@ -43,6 +43,7 @@ interface ProcessoRow {
   apelido: string | null;
   observacoes: string | null;
   visto_ate: string | null;
+  visto_clicado_em: string | null;
 }
 
 interface SnapshotRow {
@@ -62,6 +63,7 @@ function mapProcesso(r: ProcessoRow): Processo {
     apelido: r.apelido,
     observacoes: r.observacoes,
     vistoAte: r.visto_ate ?? null,
+    vistoClicadoEm: r.visto_clicado_em ?? null,
   };
 }
 
@@ -106,7 +108,11 @@ export interface IStorage {
     processoId: number,
     data: { status: string; erro?: string | null; dados?: DatajudSource | null }
   ): Promise<Snapshot>;
-  setVistoAte(id: number, vistoAte: string | null): Promise<Processo | undefined>;
+  setVistoAte(
+    id: number,
+    vistoAte: string | null,
+    vistoClicadoEm?: string | null
+  ): Promise<Processo | undefined>;
 }
 
 // ============================================================
@@ -119,7 +125,7 @@ export class PgStorage implements IStorage {
     // (colunas do painel do Arilson).
     const [procs, snaps] = await Promise.all([
       pool.query<ProcessoRow>(
-        `SELECT id, numero, tribunal, apelido, observacoes, visto_ate
+        `SELECT id, numero, tribunal, apelido, observacoes, visto_ate, visto_clicado_em
          FROM processos ORDER BY id ASC`
       ),
       pool.query<SnapshotRow>(
@@ -152,7 +158,7 @@ export class PgStorage implements IStorage {
 
   async getProcesso(id: number): Promise<Processo | undefined> {
     const { rows } = await pool.query<ProcessoRow>(
-      `SELECT id, numero, tribunal, apelido, observacoes, visto_ate
+      `SELECT id, numero, tribunal, apelido, observacoes, visto_ate, visto_clicado_em
        FROM processos WHERE id = $1`,
       [id]
     );
@@ -163,7 +169,7 @@ export class PgStorage implements IStorage {
     const { rows } = await pool.query<ProcessoRow>(
       `INSERT INTO processos (numero, tribunal, apelido, observacoes)
        VALUES ($1, $2, $3, $4)
-       RETURNING id, numero, tribunal, apelido, observacoes, visto_ate`,
+       RETURNING id, numero, tribunal, apelido, observacoes, visto_ate, visto_clicado_em`,
       [p.numero, p.tribunal, p.apelido ?? null, p.observacoes ?? null]
     );
     return mapProcesso(rows[0]);
@@ -187,7 +193,7 @@ export class PgStorage implements IStorage {
     const { rows } = await pool.query<ProcessoRow>(
       `UPDATE processos SET ${sets.join(", ")}
        WHERE id = $${i}
-       RETURNING id, numero, tribunal, apelido, observacoes, visto_ate`,
+       RETURNING id, numero, tribunal, apelido, observacoes, visto_ate, visto_clicado_em`,
       vals
     );
     return rows[0] ? mapProcesso(rows[0]) : undefined;
@@ -216,14 +222,26 @@ export class PgStorage implements IStorage {
 
   async setVistoAte(
     id: number,
-    vistoAte: string | null
+    vistoAte: string | null,
+    vistoClicadoEm?: string | null
   ): Promise<Processo | undefined> {
-    const { rows } = await pool.query<ProcessoRow>(
-      `UPDATE processos SET visto_ate = $1
-       WHERE id = $2
-       RETURNING id, numero, tribunal, apelido, observacoes, visto_ate`,
-      [vistoAte, id]
-    );
+    // Se vistoClicadoEm veio undefined, mantém o valor existente.
+    // Se veio null, limpa (usado ao voltar pra 'não lido').
+    // Se veio string, atualiza.
+    let query: string;
+    let vals: unknown[];
+    if (vistoClicadoEm === undefined) {
+      query = `UPDATE processos SET visto_ate = $1
+               WHERE id = $2
+               RETURNING id, numero, tribunal, apelido, observacoes, visto_ate, visto_clicado_em`;
+      vals = [vistoAte, id];
+    } else {
+      query = `UPDATE processos SET visto_ate = $1, visto_clicado_em = $2
+               WHERE id = $3
+               RETURNING id, numero, tribunal, apelido, observacoes, visto_ate, visto_clicado_em`;
+      vals = [vistoAte, vistoClicadoEm, id];
+    }
+    const { rows } = await pool.query<ProcessoRow>(query, vals);
     return rows[0] ? mapProcesso(rows[0]) : undefined;
   }
 

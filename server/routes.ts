@@ -206,12 +206,18 @@ export async function registerRoutes(
     if (!p) return res.status(404).json({ erro: "Processo não encontrado" });
 
     let vistoAte: string | null;
+    let vistoClicadoEm: string | null | undefined = undefined;
     if (req.body && req.body.vistoAte === null) {
+      // Volta a não lido — limpa ambos
       vistoAte = null;
+      vistoClicadoEm = null;
     } else if (req.body && typeof req.body.vistoAte === "string") {
+      // Cliente enviou data específica (raro) — só mexe em visto_ate
       vistoAte = req.body.vistoAte;
     } else {
-      // Default: marca com a data da última movimentação atual (busca do snapshot)
+      // Default (clique 'Marcar como visto'):
+      //   visto_ate         = data da última movimentação (usado pra decidir 'não lido')
+      //   visto_clicado_em  = agora (usado pra mostrar 'Visto em ...')
       const snap = await storage.getLatestSnapshot(id);
       let ultima: string | null = null;
       if (snap && snap.dadosJson) {
@@ -227,11 +233,12 @@ export async function registerRoutes(
           // ignore
         }
       }
-      // Se não tem movimentação (processo novo/erro), usa agora para "limpar" a fila
-      vistoAte = ultima ?? new Date().toISOString();
+      const agora = new Date().toISOString();
+      vistoAte = ultima ?? agora;
+      vistoClicadoEm = agora;
     }
 
-    const updated = await storage.setVistoAte(id, vistoAte);
+    const updated = await storage.setVistoAte(id, vistoAte, vistoClicadoEm);
     if (!updated) return res.status(404).json({ erro: "Processo não encontrado" });
     res.json(updated);
   });
