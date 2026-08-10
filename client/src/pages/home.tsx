@@ -52,6 +52,10 @@ import type { ProcessoComSnapshot } from "@shared/schema";
 
 const TRINTA_DIAS = 30 * 24 * 60 * 60 * 1000;
 
+// Regex que reconhece linhas de visita nas observações.
+// Formato: [DD/MM/AAAA HH:MM] Visitado
+const REGEX_VISITA = /\[(\d{2})\/(\d{2})\/(\d{4})\s+(\d{2}):(\d{2})\]\s*Visitado/i;
+
 export default function Home() {
   const { toast } = useToast();
   const { theme, toggle } = useTheme();
@@ -220,6 +224,52 @@ export default function Home() {
     );
   }
 
+  function ultimaVisita(observacoes: string | null): { texto: string; timestamp: number } | null {
+    if (!observacoes) return null;
+    let melhor: { texto: string; timestamp: number } | null = null;
+    for (const linha of observacoes.split(/\r?\n/)) {
+      const m = linha.match(REGEX_VISITA);
+      if (!m) continue;
+      const [, dd, mm, yyyy, hh, mi] = m;
+      const t = new Date(
+        Number(yyyy),
+        Number(mm) - 1,
+        Number(dd),
+        Number(hh),
+        Number(mi)
+      ).getTime();
+      if (!melhor || t > melhor.timestamp) {
+        melhor = { texto: linha.trim(), timestamp: t };
+      }
+    }
+    return melhor;
+  }
+
+  // Insere uma linha 'Visitado agora' no topo das observações.
+  async function anotarVisita(id: number, observacoesAtuais: string | null) {
+    const agora = new Date();
+    const dd = String(agora.getDate()).padStart(2, "0");
+    const mm = String(agora.getMonth() + 1).padStart(2, "0");
+    const yyyy = agora.getFullYear();
+    const hh = String(agora.getHours()).padStart(2, "0");
+    const mi = String(agora.getMinutes()).padStart(2, "0");
+    const linha = `[${dd}/${mm}/${yyyy} ${hh}:${mi}] Visitado`;
+    const novo = observacoesAtuais && observacoesAtuais.trim()
+      ? `${linha}\n${observacoesAtuais}`
+      : linha;
+    try {
+      await apiRequest("PATCH", `/api/processos/${id}`, { observacoes: novo });
+      queryClient.invalidateQueries({ queryKey: ["/api/processos"] });
+      toast({ title: "Visita anotada", description: linha });
+    } catch (e: any) {
+      toast({
+        title: "Erro ao anotar visita",
+        description: e?.message,
+        variant: "destructive",
+      });
+    }
+  }
+
   // Ordem congelada enquanto um card está expandido — evita que a linha
   // "pule" pra outra posição ao marcar como lido. A ordem é recalculada
   // quando o card fecha.
@@ -243,6 +293,7 @@ export default function Home() {
         // "Não lido" é sempre calculado dos dados vivos (etiqueta some assim que
         // o backend confirma). O que congela é só a **ordem** da lista.
         const naoLido = calcularNaoLido(p);
+        const ultVisita = ultimaVisita(p.observacoes);
         return {
           ...p,
           _ultimaData: um.data,
@@ -252,6 +303,7 @@ export default function Home() {
           _recente: recente,
           _naoLido: naoLido,
           _status: status,
+          _ultimaVisita: ultVisita,
         };
       })
       .sort((a, b) => {
@@ -591,6 +643,7 @@ export default function Home() {
                       }
                       onMarcarLido={() => marcarComoLido(p.id)}
                       onMarcarNaoLido={() => marcarComoNaoLido(p.id)}
+                      onAnotarVisita={() => anotarVisita(p.id, p.observacoes)}
                       toast={toast}
                       atualizandoEste={atualizandoIds.has(p.id)}
                     />
@@ -640,6 +693,7 @@ function LinhaProcesso({
   onAtualizarEste,
   onMarcarLido,
   onMarcarNaoLido,
+  onAnotarVisita,
   atualizandoEste,
   toast,
 }: {
@@ -652,6 +706,7 @@ function LinhaProcesso({
   onAtualizarEste: () => void;
   onMarcarLido: () => void;
   onMarcarNaoLido: () => void;
+  onAnotarVisita: () => void;
   atualizandoEste: boolean;
   toast: ReturnType<typeof useToast>["toast"];
 }) {
@@ -711,6 +766,16 @@ function LinhaProcesso({
             {erro && (
               <Badge variant="outline" className="text-destructive border-destructive/40 shrink-0">
                 Erro
+              </Badge>
+            )}
+            {p._ultimaVisita && (
+              <Badge
+                variant="outline"
+                className="text-amber-800 dark:text-amber-200 border-amber-400/60 bg-amber-100 dark:bg-amber-950/40 shrink-0"
+                data-testid={`badge-visitado-${p.id}`}
+                title={`Última visita anotada: ${p._ultimaVisita.texto}`}
+              >
+                👁 {p._ultimaVisita.texto.match(REGEX_VISITA)?.[0]?.replace(/\[|\]/g, "").replace(" Visitado", "") ?? "Visitado"}
               </Badge>
             )}
           </div>
@@ -830,7 +895,23 @@ function LinhaProcesso({
           {p.observacoes && (
             <div className="mb-4 pl-6 text-sm">
               <span className="text-xs uppercase tracking-wide text-muted-foreground">Observações</span>
-              <p className="mt-0.5 text-foreground">{p.observacoes}</p>
+              <div className="mt-0.5 text-foreground space-y-0.5">
+                {p.observacoes.split(/\r?\n/).map((linha: string, i: number) => {
+                  const isVisita = REGEX_VISITA.test(linha);
+                  return (
+                    <p
+                      key={i}
+                      className={
+                        isVisita
+                          ? "bg-amber-100 dark:bg-amber-950/40 text-amber-900 dark:text-amber-100 px-2 py-0.5 rounded font-medium"
+                          : ""
+                      }
+                    >
+                      {linha || "\u00a0"}
+                    </p>
+                  );
+                })}
+              </div>
             </div>
           )}
 
@@ -934,6 +1015,15 @@ function LinhaProcesso({
                 )}
               </div>
             )}
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={onAnotarVisita}
+              data-testid={`button-anotar-visita-${p.id}`}
+              title="Registrar que você examinou o processo agora (insere uma linha nas observações)"
+            >
+              👁 Anotar visita agora
+            </Button>
             <Button variant="ghost" size="sm" onClick={onEdit} data-testid={`button-editar-exp-${p.id}`}>
               <Pencil className="h-3.5 w-3.5 mr-1.5" /> Editar
             </Button>
