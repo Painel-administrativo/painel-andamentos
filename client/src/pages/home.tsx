@@ -43,6 +43,7 @@ import {
 import {
   formatarCNJ,
   formatarData,
+  formatarDataHora,
   tempoRelativo,
   urlPortal,
   ultimaMovimentacao,
@@ -912,15 +913,26 @@ function LinhaProcesso({
               </Button>
             )}
             {!segundoGrau && !p._naoLido && p._ultimaData && (
-              <Button
-                variant="ghost"
-                size="sm"
-                onClick={onMarcarNaoLido}
-                data-testid={`button-marcar-nao-lido-${p.id}`}
-                title="Voltar este processo para a fila de não lidos"
-              >
-                <Mail className="h-3.5 w-3.5 mr-1.5" /> Marcar como não lido
-              </Button>
+              <div className="flex items-center gap-2">
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={onMarcarNaoLido}
+                  data-testid={`button-marcar-nao-lido-${p.id}`}
+                  title="Voltar este processo para a fila de não lidos"
+                >
+                  <Mail className="h-3.5 w-3.5 mr-1.5" /> Marcar como não lido
+                </Button>
+                {p.vistoAte && (
+                  <span
+                    className="text-xs text-muted-foreground"
+                    title="Última vez que você marcou como visto"
+                    data-testid={`text-visto-em-${p.id}`}
+                  >
+                    Visto em {formatarDataHora(p.vistoAte)}
+                  </span>
+                )}
+              </div>
             )}
             <Button variant="ghost" size="sm" onClick={onEdit} data-testid={`button-editar-exp-${p.id}`}>
               <Pencil className="h-3.5 w-3.5 mr-1.5" /> Editar
