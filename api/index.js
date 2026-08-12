@@ -33868,7 +33868,11 @@ async function registerRoutes(httpServer, app2) {
       const processosComNovas = [];
       let totalNovas = 0;
       let erros = 0;
-      for (const p of procs) {
+      let erros429 = 0;
+      const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+      for (let i = 0; i < procs.length; i++) {
+        const p = procs[i];
+        if (i > 0) await sleep(1500);
         try {
           const numero20 = normalizarNumero(p.numero);
           if (numero20.length !== 20) {
@@ -33889,6 +33893,36 @@ async function registerRoutes(httpServer, app2) {
               "User-Agent": "PainelAndamentos/1.0 (cron)"
             }
           });
+          if (resp.status === 429) {
+            erros429++;
+            await sleep(5e3);
+            const resp2 = await fetch(url, {
+              method: "GET",
+              headers: {
+                "Accept": "application/json",
+                "User-Agent": "PainelAndamentos/1.0 (cron)"
+              }
+            });
+            if (resp2.status !== 200) {
+              erros++;
+              continue;
+            }
+            const body2 = await resp2.json().catch(() => null);
+            if (!body2 || !Array.isArray(body2.items) || body2.items.length === 0) {
+              continue;
+            }
+            const { inseridas: ins2 } = await storage.inserirPublicacoes(p.id, body2.items);
+            if (ins2 > 0) {
+              processosComNovas.push({
+                id: p.id,
+                apelido: p.apelido,
+                numero: p.numero,
+                novas: ins2
+              });
+              totalNovas += ins2;
+            }
+            continue;
+          }
           if (resp.status !== 200) {
             erros++;
             continue;
@@ -33920,6 +33954,7 @@ async function registerRoutes(httpServer, app2) {
         novasPublicacoes: totalNovas,
         processosComNovas,
         erros,
+        erros429,
         offset,
         proximoOffset,
         concluido

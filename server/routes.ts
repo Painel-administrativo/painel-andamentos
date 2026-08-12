@@ -596,8 +596,16 @@ export async function registerRoutes(
       const processosComNovas: Array<{ id: number; apelido: string | null; numero: string; novas: number }> = [];
       let totalNovas = 0;
       let erros = 0;
+      let erros429 = 0;
 
-      for (const p of procs) {
+      // Delay entre chamadas ao DJEN (rate-limit protection).
+      // Sem isso, o DJEN começa a devolver 429 depois de ~20 requests rápidos.
+      const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
+      for (let i = 0; i < procs.length; i++) {
+        const p = procs[i];
+        // Delay entre chamadas (não antes da primeira)
+        if (i > 0) await sleep(1500);
         try {
           const numero20 = normalizarNumero(p.numero);
           if (numero20.length !== 20) {
@@ -618,6 +626,37 @@ export async function registerRoutes(
               "User-Agent": "PainelAndamentos/1.0 (cron)",
             },
           });
+          if (resp.status === 429) {
+            // Rate limit — espera mais e refaz
+            erros429++;
+            await sleep(5000);
+            const resp2 = await fetch(url, {
+              method: "GET",
+              headers: {
+                "Accept": "application/json",
+                "User-Agent": "PainelAndamentos/1.0 (cron)",
+              },
+            });
+            if (resp2.status !== 200) {
+              erros++;
+              continue;
+            }
+            const body2 = await resp2.json().catch(() => null) as any;
+            if (!body2 || !Array.isArray(body2.items) || body2.items.length === 0) {
+              continue;
+            }
+            const { inseridas: ins2 } = await storage.inserirPublicacoes(p.id, body2.items);
+            if (ins2 > 0) {
+              processosComNovas.push({
+                id: p.id,
+                apelido: p.apelido,
+                numero: p.numero,
+                novas: ins2,
+              });
+              totalNovas += ins2;
+            }
+            continue;
+          }
           if (resp.status !== 200) {
             erros++;
             continue;
@@ -651,6 +690,7 @@ export async function registerRoutes(
         novasPublicacoes: totalNovas,
         processosComNovas,
         erros,
+        erros429,
         offset,
         proximoOffset,
         concluido,
