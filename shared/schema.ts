@@ -77,3 +77,37 @@ export interface ProcessoComSnapshot extends Processo {
   snapshot: Snapshot | null;
   dados: DatajudSource | null;
 }
+
+// ============================================================
+// Fase 2 — Publicações do DJEN
+// ============================================================
+export interface Publicacao {
+  id: number;
+  processoId: number;
+  hash: string;
+  dataDisponibilizacao: string; // YYYY-MM-DD
+  tipoComunicacao: string | null;
+  tipoDocumento: string | null;
+  nomeOrgao: string | null;
+  nomeClasse: string | null;
+  texto: string | null;
+  link: string | null;
+  numeroComunicacao: number | null;
+  criadoEm: string; // ISO 8601
+}
+
+// Item cru vindo da API DJEN (usado internamente pelo backend)
+export interface DjenItem {
+  id?: number;
+  data_disponibilizacao?: string;
+  siglaTribunal?: string;
+  tipoComunicacao?: string;
+  tipoDocumento?: string;
+  nomeOrgao?: string;
+  nomeClasse?: string;
+  texto?: string;
+  link?: string;
+  numeroComunicacao?: number;
+  hash?: string;
+  numero_processo?: string;
+}

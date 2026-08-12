@@ -29154,6 +29154,22 @@ function mapSnapshot(r) {
     dadosJson: r.dados_json == null ? null : JSON.stringify(r.dados_json)
   };
 }
+function mapPublicacao(r) {
+  return {
+    id: r.id,
+    processoId: r.processo_id,
+    hash: r.hash,
+    dataDisponibilizacao: r.data_disponibilizacao,
+    tipoComunicacao: r.tipo_comunicacao,
+    tipoDocumento: r.tipo_documento,
+    nomeOrgao: r.nome_orgao,
+    nomeClasse: r.nome_classe,
+    texto: r.texto,
+    link: r.link,
+    numeroComunicacao: r.numero_comunicacao,
+    criadoEm: r.criado_em
+  };
+}
 function parseDados(s) {
   if (!s || s.dados_json == null) return null;
   if (typeof s.dados_json === "string") {
@@ -29275,6 +29291,72 @@ var PgStorage = class {
     }
     const { rows } = await pool.query(query, vals);
     return rows[0] ? mapProcesso(rows[0]) : void 0;
+  }
+  // ============================================================
+  // Fase 2 — Métodos de Publicações DJEN
+  // ============================================================
+  async inserirPublicacoes(processoId, items) {
+    let inseridas = 0;
+    let ignoradas = 0;
+    for (const it of items) {
+      if (!it.hash) {
+        ignoradas++;
+        continue;
+      }
+      const data = it.data_disponibilizacao;
+      if (!data || !/^\d{4}-\d{2}-\d{2}$/.test(data)) {
+        ignoradas++;
+        continue;
+      }
+      const { rowCount } = await pool.query(
+        `INSERT INTO publicacoes (
+           processo_id, hash, data_disponibilizacao,
+           tipo_comunicacao, tipo_documento, nome_orgao, nome_classe,
+           texto, link, numero_comunicacao, raw_json
+         ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+         ON CONFLICT (hash) DO NOTHING`,
+        [
+          processoId,
+          it.hash,
+          data,
+          it.tipoComunicacao ?? null,
+          it.tipoDocumento ?? null,
+          it.nomeOrgao ?? null,
+          it.nomeClasse ?? null,
+          it.texto ?? null,
+          it.link ?? null,
+          typeof it.numeroComunicacao === "number" ? it.numeroComunicacao : null,
+          JSON.stringify(it)
+        ]
+      );
+      if (rowCount && rowCount > 0) inseridas++;
+      else ignoradas++;
+    }
+    return { inseridas, ignoradas };
+  }
+  async listarPublicacoesPorProcesso(processoId) {
+    const { rows } = await pool.query(
+      `SELECT id, processo_id, hash, data_disponibilizacao,
+              tipo_comunicacao, tipo_documento, nome_orgao, nome_classe,
+              texto, link, numero_comunicacao, criado_em
+       FROM publicacoes
+       WHERE processo_id = $1
+       ORDER BY data_disponibilizacao DESC, id DESC`,
+      [processoId]
+    );
+    return rows.map(mapPublicacao);
+  }
+  async listarPublicacoesRecentes(desdeIso) {
+    const { rows } = await pool.query(
+      `SELECT id, processo_id, hash, data_disponibilizacao,
+              tipo_comunicacao, tipo_documento, nome_orgao, nome_classe,
+              texto, link, numero_comunicacao, criado_em
+       FROM publicacoes
+       WHERE criado_em >= $1
+       ORDER BY criado_em DESC, id DESC`,
+      [desdeIso]
+    );
+    return rows.map(mapPublicacao);
   }
   async upsertSnapshot(processoId, data) {
     const { rows } = await pool.query(
@@ -33765,6 +33847,111 @@ async function registerRoutes(httpServer, app2) {
         return res.status(400).json({ erro: "Payload inv\xE1lido", detalhes: e.issues });
       }
       console.error("publicacoes/testar erro:", e);
+      res.status(500).json({ erro: e?.message || String(e) });
+    }
+  });
+  app2.post("/api/publicacoes/atualizar", async (req, res) => {
+    try {
+      const limite = Math.min(50, Math.max(1, parseInt(String(req.query.limite ?? "20"), 10) || 20));
+      const offset = Math.max(0, parseInt(String(req.query.offset ?? "0"), 10) || 0);
+      const dias = Math.min(30, Math.max(1, parseInt(String(req.query.dias ?? "3"), 10) || 3));
+      const hoje = /* @__PURE__ */ new Date();
+      const fim = hoje.toISOString().slice(0, 10);
+      const inicioDate = new Date(hoje.getTime() - dias * 24 * 60 * 60 * 1e3);
+      const inicio = inicioDate.toISOString().slice(0, 10);
+      const { rows: procs } = await pool.query(
+        `SELECT id, numero, apelido FROM processos
+         ORDER BY id ASC
+         OFFSET $1 LIMIT $2`,
+        [offset, limite]
+      );
+      const processosComNovas = [];
+      let totalNovas = 0;
+      let erros = 0;
+      for (const p of procs) {
+        try {
+          const numero20 = normalizarNumero(p.numero);
+          if (numero20.length !== 20) {
+            erros++;
+            continue;
+          }
+          const params = new URLSearchParams({
+            numeroProcesso: numero20,
+            itensPorPagina: "50",
+            dataDisponibilizacaoInicio: inicio,
+            dataDisponibilizacaoFim: fim
+          });
+          const url = `https://comunicaapi.pje.jus.br/api/v1/comunicacao?${params.toString()}`;
+          const resp = await fetch(url, {
+            method: "GET",
+            headers: {
+              "Accept": "application/json",
+              "User-Agent": "PainelAndamentos/1.0 (cron)"
+            }
+          });
+          if (resp.status !== 200) {
+            erros++;
+            continue;
+          }
+          const body = await resp.json().catch(() => null);
+          if (!body || !Array.isArray(body.items) || body.items.length === 0) {
+            continue;
+          }
+          const { inseridas } = await storage.inserirPublicacoes(p.id, body.items);
+          if (inseridas > 0) {
+            processosComNovas.push({
+              id: p.id,
+              apelido: p.apelido,
+              numero: p.numero,
+              novas: inseridas
+            });
+            totalNovas += inseridas;
+          }
+        } catch (e) {
+          erros++;
+          console.error(`publicacoes/atualizar erro no processo ${p.id}:`, e.message);
+        }
+      }
+      const concluido = procs.length < limite;
+      const proximoOffset = offset + procs.length;
+      res.json({
+        janela: { inicio, fim, dias },
+        processados: procs.length,
+        novasPublicacoes: totalNovas,
+        processosComNovas,
+        erros,
+        offset,
+        proximoOffset,
+        concluido
+      });
+    } catch (e) {
+      console.error("publicacoes/atualizar erro geral:", e);
+      res.status(500).json({ erro: e?.message || String(e) });
+    }
+  });
+  app2.get("/api/publicacoes/processo/:id", async (req, res) => {
+    try {
+      const id = parseInt(req.params.id, 10);
+      if (!Number.isFinite(id) || id <= 0) {
+        return res.status(400).json({ erro: "ID inv\xE1lido" });
+      }
+      const publicacoes = await storage.listarPublicacoesPorProcesso(id);
+      res.json(publicacoes);
+    } catch (e) {
+      console.error("publicacoes/processo/:id erro:", e);
+      res.status(500).json({ erro: e?.message || String(e) });
+    }
+  });
+  app2.get("/api/publicacoes/recentes", async (req, res) => {
+    try {
+      const desde = String(req.query.desde ?? "");
+      if (!desde || Number.isNaN(Date.parse(desde))) {
+        return res.status(400).json({ erro: "Par\xE2metro `desde` (ISO 8601) obrigat\xF3rio" });
+      }
+      const publicacoes = await storage.listarPublicacoesRecentes(desde);
+      res.json(publicacoes);
+    } catch (e) {
+      console.error("publicacoes/recentes erro:", e);
       res.status(500).json({ erro: e?.message || String(e) });
     }
   });

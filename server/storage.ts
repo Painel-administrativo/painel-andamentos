@@ -5,6 +5,8 @@ import type {
   Snapshot,
   ProcessoComSnapshot,
   DatajudSource,
+  Publicacao,
+  DjenItem,
 } from "@shared/schema";
 
 // ============================================================
@@ -79,6 +81,39 @@ function mapSnapshot(r: SnapshotRow): Snapshot {
   };
 }
 
+// Row type e mapper para publicações (Fase 2)
+interface PublicacaoRow {
+  id: number;
+  processo_id: number;
+  hash: string;
+  data_disponibilizacao: string;
+  tipo_comunicacao: string | null;
+  tipo_documento: string | null;
+  nome_orgao: string | null;
+  nome_classe: string | null;
+  texto: string | null;
+  link: string | null;
+  numero_comunicacao: number | null;
+  criado_em: string;
+}
+
+function mapPublicacao(r: PublicacaoRow): Publicacao {
+  return {
+    id: r.id,
+    processoId: r.processo_id,
+    hash: r.hash,
+    dataDisponibilizacao: r.data_disponibilizacao,
+    tipoComunicacao: r.tipo_comunicacao,
+    tipoDocumento: r.tipo_documento,
+    nomeOrgao: r.nome_orgao,
+    nomeClasse: r.nome_classe,
+    texto: r.texto,
+    link: r.link,
+    numeroComunicacao: r.numero_comunicacao,
+    criadoEm: r.criado_em,
+  };
+}
+
 function parseDados(s: SnapshotRow | null | undefined): DatajudSource | null {
   if (!s || s.dados_json == null) return null;
   if (typeof s.dados_json === "string") {
@@ -113,6 +148,14 @@ export interface IStorage {
     vistoAte: string | null,
     vistoClicadoEm?: string | null
   ): Promise<Processo | undefined>;
+
+  // Fase 2 — Publicações DJEN
+  inserirPublicacoes(
+    processoId: number,
+    items: DjenItem[]
+  ): Promise<{ inseridas: number; ignoradas: number }>;
+  listarPublicacoesPorProcesso(processoId: number): Promise<Publicacao[]>;
+  listarPublicacoesRecentes(desdeIso: string): Promise<Publicacao[]>;
 }
 
 // ============================================================
@@ -243,6 +286,78 @@ export class PgStorage implements IStorage {
     }
     const { rows } = await pool.query<ProcessoRow>(query, vals);
     return rows[0] ? mapProcesso(rows[0]) : undefined;
+  }
+
+  // ============================================================
+  // Fase 2 — Métodos de Publicações DJEN
+  // ============================================================
+  async inserirPublicacoes(
+    processoId: number,
+    items: DjenItem[]
+  ): Promise<{ inseridas: number; ignoradas: number }> {
+    let inseridas = 0;
+    let ignoradas = 0;
+    for (const it of items) {
+      if (!it.hash) {
+        ignoradas++;
+        continue;
+      }
+      const data = it.data_disponibilizacao;
+      if (!data || !/^\d{4}-\d{2}-\d{2}$/.test(data)) {
+        ignoradas++;
+        continue;
+      }
+      const { rowCount } = await pool.query(
+        `INSERT INTO publicacoes (
+           processo_id, hash, data_disponibilizacao,
+           tipo_comunicacao, tipo_documento, nome_orgao, nome_classe,
+           texto, link, numero_comunicacao, raw_json
+         ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+         ON CONFLICT (hash) DO NOTHING`,
+        [
+          processoId,
+          it.hash,
+          data,
+          it.tipoComunicacao ?? null,
+          it.tipoDocumento ?? null,
+          it.nomeOrgao ?? null,
+          it.nomeClasse ?? null,
+          it.texto ?? null,
+          it.link ?? null,
+          typeof it.numeroComunicacao === "number" ? it.numeroComunicacao : null,
+          JSON.stringify(it),
+        ]
+      );
+      if (rowCount && rowCount > 0) inseridas++;
+      else ignoradas++;
+    }
+    return { inseridas, ignoradas };
+  }
+
+  async listarPublicacoesPorProcesso(processoId: number): Promise<Publicacao[]> {
+    const { rows } = await pool.query<PublicacaoRow>(
+      `SELECT id, processo_id, hash, data_disponibilizacao,
+              tipo_comunicacao, tipo_documento, nome_orgao, nome_classe,
+              texto, link, numero_comunicacao, criado_em
+       FROM publicacoes
+       WHERE processo_id = $1
+       ORDER BY data_disponibilizacao DESC, id DESC`,
+      [processoId]
+    );
+    return rows.map(mapPublicacao);
+  }
+
+  async listarPublicacoesRecentes(desdeIso: string): Promise<Publicacao[]> {
+    const { rows } = await pool.query<PublicacaoRow>(
+      `SELECT id, processo_id, hash, data_disponibilizacao,
+              tipo_comunicacao, tipo_documento, nome_orgao, nome_classe,
+              texto, link, numero_comunicacao, criado_em
+       FROM publicacoes
+       WHERE criado_em >= $1
+       ORDER BY criado_em DESC, id DESC`,
+      [desdeIso]
+    );
+    return rows.map(mapPublicacao);
   }
 
   async upsertSnapshot(

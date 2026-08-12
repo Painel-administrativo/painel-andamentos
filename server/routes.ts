@@ -1,7 +1,7 @@
 import type { Express } from "express";
 import { createServer } from "node:http";
 import type { Server } from "node:http";
-import { storage } from "./storage";
+import { storage, pool } from "./storage";
 import { insertProcessoInputSchema, type DatajudSource, TRIBUNAIS } from "@shared/schema";
 import { z } from "zod";
 
@@ -556,6 +556,137 @@ export async function registerRoutes(
         return res.status(400).json({ erro: "Payload inválido", detalhes: e.issues });
       }
       console.error("publicacoes/testar erro:", e);
+      res.status(500).json({ erro: e?.message || String(e) });
+    }
+  });
+
+  // === FASE 2: Atualização em lote de publicações DJEN ===
+  // Consulta a API DJEN pra cada processo em um lote e insere
+  // as publicações novas na tabela `publicacoes`. Idempotente
+  // via UNIQUE (hash) — rodar 2x não duplica.
+  //
+  // Query params:
+  //   limite  = tamanho do lote (default 20, max 50)
+  //   offset  = a partir de qual processo (paginado por ID)
+  //   dias    = janela de dias pra trás (default 3)
+  //
+  // Retorno:
+  //   { processados, novasPublicacoes, processosComNovas, concluido, proximoOffset }
+  app.post("/api/publicacoes/atualizar", async (req, res) => {
+    try {
+      const limite = Math.min(50, Math.max(1, parseInt(String(req.query.limite ?? "20"), 10) || 20));
+      const offset = Math.max(0, parseInt(String(req.query.offset ?? "0"), 10) || 0);
+      const dias = Math.min(30, Math.max(1, parseInt(String(req.query.dias ?? "3"), 10) || 3));
+
+      // Janela de datas (D-N a D-0). Formato YYYY-MM-DD.
+      const hoje = new Date();
+      const fim = hoje.toISOString().slice(0, 10);
+      const inicioDate = new Date(hoje.getTime() - dias * 24 * 60 * 60 * 1000);
+      const inicio = inicioDate.toISOString().slice(0, 10);
+
+      // Lista processos pelo ID ascendente (paginado). Query direta ao
+      // pool pra evitar carregar snapshots (que não precisamos aqui).
+      const { rows: procs } = await pool.query<{ id: number; numero: string; apelido: string | null }>(
+        `SELECT id, numero, apelido FROM processos
+         ORDER BY id ASC
+         OFFSET $1 LIMIT $2`,
+        [offset, limite]
+      );
+
+      const processosComNovas: Array<{ id: number; apelido: string | null; numero: string; novas: number }> = [];
+      let totalNovas = 0;
+      let erros = 0;
+
+      for (const p of procs) {
+        try {
+          const numero20 = normalizarNumero(p.numero);
+          if (numero20.length !== 20) {
+            erros++;
+            continue;
+          }
+          const params = new URLSearchParams({
+            numeroProcesso: numero20,
+            itensPorPagina: "50",
+            dataDisponibilizacaoInicio: inicio,
+            dataDisponibilizacaoFim: fim,
+          });
+          const url = `https://comunicaapi.pje.jus.br/api/v1/comunicacao?${params.toString()}`;
+          const resp = await fetch(url, {
+            method: "GET",
+            headers: {
+              "Accept": "application/json",
+              "User-Agent": "PainelAndamentos/1.0 (cron)",
+            },
+          });
+          if (resp.status !== 200) {
+            erros++;
+            continue;
+          }
+          const body = await resp.json().catch(() => null) as any;
+          if (!body || !Array.isArray(body.items) || body.items.length === 0) {
+            continue;
+          }
+          const { inseridas } = await storage.inserirPublicacoes(p.id, body.items);
+          if (inseridas > 0) {
+            processosComNovas.push({
+              id: p.id,
+              apelido: p.apelido,
+              numero: p.numero,
+              novas: inseridas,
+            });
+            totalNovas += inseridas;
+          }
+        } catch (e) {
+          erros++;
+          console.error(`publicacoes/atualizar erro no processo ${p.id}:`, (e as Error).message);
+        }
+      }
+
+      const concluido = procs.length < limite;
+      const proximoOffset = offset + procs.length;
+
+      res.json({
+        janela: { inicio, fim, dias },
+        processados: procs.length,
+        novasPublicacoes: totalNovas,
+        processosComNovas,
+        erros,
+        offset,
+        proximoOffset,
+        concluido,
+      });
+    } catch (e: any) {
+      console.error("publicacoes/atualizar erro geral:", e);
+      res.status(500).json({ erro: e?.message || String(e) });
+    }
+  });
+
+  // === Listar publicações de um processo (usado pelo frontend futuro) ===
+  app.get("/api/publicacoes/processo/:id", async (req, res) => {
+    try {
+      const id = parseInt(req.params.id, 10);
+      if (!Number.isFinite(id) || id <= 0) {
+        return res.status(400).json({ erro: "ID inválido" });
+      }
+      const publicacoes = await storage.listarPublicacoesPorProcesso(id);
+      res.json(publicacoes);
+    } catch (e: any) {
+      console.error("publicacoes/processo/:id erro:", e);
+      res.status(500).json({ erro: e?.message || String(e) });
+    }
+  });
+
+  // === Listar publicações criadas desde X (usado pelo cron pra formatar notificação) ===
+  app.get("/api/publicacoes/recentes", async (req, res) => {
+    try {
+      const desde = String(req.query.desde ?? "");
+      if (!desde || Number.isNaN(Date.parse(desde))) {
+        return res.status(400).json({ erro: "Parâmetro `desde` (ISO 8601) obrigatório" });
+      }
+      const publicacoes = await storage.listarPublicacoesRecentes(desde);
+      res.json(publicacoes);
+    } catch (e: any) {
+      console.error("publicacoes/recentes erro:", e);
       res.status(500).json({ erro: e?.message || String(e) });
     }
   });
