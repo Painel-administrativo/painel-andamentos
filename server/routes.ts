@@ -604,8 +604,10 @@ export async function registerRoutes(
 
       for (let i = 0; i < procs.length; i++) {
         const p = procs[i];
-        // Delay entre chamadas (não antes da primeira)
-        if (i > 0) await sleep(1500);
+        // Delay entre chamadas (não antes da primeira).
+        // 1000ms: em 15 procs = 14s de espera + ~8s de fetch = ~22s por lote,
+        // com folga dentro dos 60s do Vercel.
+        if (i > 0) await sleep(1000);
         try {
           const numero20 = normalizarNumero(p.numero);
           if (numero20.length !== 20) {

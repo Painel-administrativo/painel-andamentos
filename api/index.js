@@ -33872,7 +33872,7 @@ async function registerRoutes(httpServer, app2) {
       const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
       for (let i = 0; i < procs.length; i++) {
         const p = procs[i];
-        if (i > 0) await sleep(1500);
+        if (i > 0) await sleep(1e3);
         try {
           const numero20 = normalizarNumero(p.numero);
           if (numero20.length !== 20) {
