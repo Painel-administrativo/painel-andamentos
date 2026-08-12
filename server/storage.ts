@@ -6,6 +6,7 @@ import type {
   ProcessoComSnapshot,
   DatajudSource,
   Publicacao,
+  PublicacaoComProcesso,
   DjenItem,
 } from "@shared/schema";
 
@@ -95,6 +96,12 @@ interface PublicacaoRow {
   link: string | null;
   numero_comunicacao: number | null;
   criado_em: string;
+  lido_em: string | null;
+}
+
+interface PublicacaoComProcessoRow extends PublicacaoRow {
+  processo_apelido: string | null;
+  processo_numero: string;
 }
 
 function mapPublicacao(r: PublicacaoRow): Publicacao {
@@ -111,6 +118,15 @@ function mapPublicacao(r: PublicacaoRow): Publicacao {
     link: r.link,
     numeroComunicacao: r.numero_comunicacao,
     criadoEm: r.criado_em,
+    lidoEm: r.lido_em,
+  };
+}
+
+function mapPublicacaoComProcesso(r: PublicacaoComProcessoRow): PublicacaoComProcesso {
+  return {
+    ...mapPublicacao(r),
+    processoApelido: r.processo_apelido,
+    processoNumero: r.processo_numero,
   };
 }
 
@@ -156,6 +172,16 @@ export interface IStorage {
   ): Promise<{ inseridas: number; ignoradas: number }>;
   listarPublicacoesPorProcesso(processoId: number): Promise<Publicacao[]>;
   listarPublicacoesRecentes(desdeIso: string): Promise<Publicacao[]>;
+
+  // Fase 3B — Card de publicações com scroll infinito e marcação de lida
+  listarPublicacoes(opts: {
+    limite: number;
+    antesDe?: string | null; // cursor: criadoEm da última linha da página anterior
+    apenasNaoLidas?: boolean;
+  }): Promise<PublicacaoComProcesso[]>;
+  contarNaoLidas(): Promise<number>;
+  marcarPublicacaoLida(id: number): Promise<boolean>;
+  marcarTodasLidas(): Promise<number>;
 }
 
 // ============================================================
@@ -338,7 +364,7 @@ export class PgStorage implements IStorage {
     const { rows } = await pool.query<PublicacaoRow>(
       `SELECT id, processo_id, hash, data_disponibilizacao,
               tipo_comunicacao, tipo_documento, nome_orgao, nome_classe,
-              texto, link, numero_comunicacao, criado_em
+              texto, link, numero_comunicacao, criado_em, lido_em
        FROM publicacoes
        WHERE processo_id = $1
        ORDER BY data_disponibilizacao DESC, id DESC`,
@@ -351,13 +377,73 @@ export class PgStorage implements IStorage {
     const { rows } = await pool.query<PublicacaoRow>(
       `SELECT id, processo_id, hash, data_disponibilizacao,
               tipo_comunicacao, tipo_documento, nome_orgao, nome_classe,
-              texto, link, numero_comunicacao, criado_em
+              texto, link, numero_comunicacao, criado_em, lido_em
        FROM publicacoes
        WHERE criado_em >= $1
        ORDER BY criado_em DESC, id DESC`,
       [desdeIso]
     );
     return rows.map(mapPublicacao);
+  }
+
+  // ---------- Fase 3B ----------
+
+  async listarPublicacoes(opts: {
+    limite: number;
+    antesDe?: string | null;
+    apenasNaoLidas?: boolean;
+  }): Promise<PublicacaoComProcesso[]> {
+    const filtros: string[] = [];
+    const args: any[] = [];
+    let idx = 1;
+
+    if (opts.apenasNaoLidas) {
+      filtros.push(`pub.lido_em IS NULL`);
+    }
+    if (opts.antesDe) {
+      filtros.push(`pub.criado_em < $${idx++}`);
+      args.push(opts.antesDe);
+    }
+    args.push(opts.limite);
+    const limIdx = idx;
+
+    const where = filtros.length > 0 ? `WHERE ${filtros.join(" AND ")}` : "";
+
+    const { rows } = await pool.query<PublicacaoComProcessoRow>(
+      `SELECT pub.id, pub.processo_id, pub.hash, pub.data_disponibilizacao,
+              pub.tipo_comunicacao, pub.tipo_documento, pub.nome_orgao, pub.nome_classe,
+              pub.texto, pub.link, pub.numero_comunicacao, pub.criado_em, pub.lido_em,
+              pr.apelido AS processo_apelido, pr.numero AS processo_numero
+       FROM publicacoes pub
+       JOIN processos pr ON pr.id = pub.processo_id
+       ${where}
+       ORDER BY pub.criado_em DESC, pub.id DESC
+       LIMIT $${limIdx}`,
+      args
+    );
+    return rows.map(mapPublicacaoComProcesso);
+  }
+
+  async contarNaoLidas(): Promise<number> {
+    const { rows } = await pool.query<{ n: string }>(
+      `SELECT COUNT(*)::text AS n FROM publicacoes WHERE lido_em IS NULL`
+    );
+    return parseInt(rows[0]?.n ?? "0", 10);
+  }
+
+  async marcarPublicacaoLida(id: number): Promise<boolean> {
+    const { rowCount } = await pool.query(
+      `UPDATE publicacoes SET lido_em = now() WHERE id = $1 AND lido_em IS NULL`,
+      [id]
+    );
+    return (rowCount ?? 0) > 0;
+  }
+
+  async marcarTodasLidas(): Promise<number> {
+    const { rowCount } = await pool.query(
+      `UPDATE publicacoes SET lido_em = now() WHERE lido_em IS NULL`
+    );
+    return rowCount ?? 0;
   }
 
   async upsertSnapshot(

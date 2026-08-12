@@ -29167,7 +29167,15 @@ function mapPublicacao(r) {
     texto: r.texto,
     link: r.link,
     numeroComunicacao: r.numero_comunicacao,
-    criadoEm: r.criado_em
+    criadoEm: r.criado_em,
+    lidoEm: r.lido_em
+  };
+}
+function mapPublicacaoComProcesso(r) {
+  return {
+    ...mapPublicacao(r),
+    processoApelido: r.processo_apelido,
+    processoNumero: r.processo_numero
   };
 }
 function parseDados(s) {
@@ -29338,7 +29346,7 @@ var PgStorage = class {
     const { rows } = await pool.query(
       `SELECT id, processo_id, hash, data_disponibilizacao,
               tipo_comunicacao, tipo_documento, nome_orgao, nome_classe,
-              texto, link, numero_comunicacao, criado_em
+              texto, link, numero_comunicacao, criado_em, lido_em
        FROM publicacoes
        WHERE processo_id = $1
        ORDER BY data_disponibilizacao DESC, id DESC`,
@@ -29350,13 +29358,61 @@ var PgStorage = class {
     const { rows } = await pool.query(
       `SELECT id, processo_id, hash, data_disponibilizacao,
               tipo_comunicacao, tipo_documento, nome_orgao, nome_classe,
-              texto, link, numero_comunicacao, criado_em
+              texto, link, numero_comunicacao, criado_em, lido_em
        FROM publicacoes
        WHERE criado_em >= $1
        ORDER BY criado_em DESC, id DESC`,
       [desdeIso]
     );
     return rows.map(mapPublicacao);
+  }
+  // ---------- Fase 3B ----------
+  async listarPublicacoes(opts) {
+    const filtros = [];
+    const args = [];
+    let idx = 1;
+    if (opts.apenasNaoLidas) {
+      filtros.push(`pub.lido_em IS NULL`);
+    }
+    if (opts.antesDe) {
+      filtros.push(`pub.criado_em < $${idx++}`);
+      args.push(opts.antesDe);
+    }
+    args.push(opts.limite);
+    const limIdx = idx;
+    const where = filtros.length > 0 ? `WHERE ${filtros.join(" AND ")}` : "";
+    const { rows } = await pool.query(
+      `SELECT pub.id, pub.processo_id, pub.hash, pub.data_disponibilizacao,
+              pub.tipo_comunicacao, pub.tipo_documento, pub.nome_orgao, pub.nome_classe,
+              pub.texto, pub.link, pub.numero_comunicacao, pub.criado_em, pub.lido_em,
+              pr.apelido AS processo_apelido, pr.numero AS processo_numero
+       FROM publicacoes pub
+       JOIN processos pr ON pr.id = pub.processo_id
+       ${where}
+       ORDER BY pub.criado_em DESC, pub.id DESC
+       LIMIT $${limIdx}`,
+      args
+    );
+    return rows.map(mapPublicacaoComProcesso);
+  }
+  async contarNaoLidas() {
+    const { rows } = await pool.query(
+      `SELECT COUNT(*)::text AS n FROM publicacoes WHERE lido_em IS NULL`
+    );
+    return parseInt(rows[0]?.n ?? "0", 10);
+  }
+  async marcarPublicacaoLida(id) {
+    const { rowCount } = await pool.query(
+      `UPDATE publicacoes SET lido_em = now() WHERE id = $1 AND lido_em IS NULL`,
+      [id]
+    );
+    return (rowCount ?? 0) > 0;
+  }
+  async marcarTodasLidas() {
+    const { rowCount } = await pool.query(
+      `UPDATE publicacoes SET lido_em = now() WHERE lido_em IS NULL`
+    );
+    return rowCount ?? 0;
   }
   async upsertSnapshot(processoId, data) {
     const { rows } = await pool.query(
@@ -33987,6 +34043,59 @@ async function registerRoutes(httpServer, app2) {
       res.json(publicacoes);
     } catch (e) {
       console.error("publicacoes/recentes erro:", e);
+      res.status(500).json({ erro: e?.message || String(e) });
+    }
+  });
+  app2.get("/api/publicacoes", async (req, res) => {
+    try {
+      const limite = Math.min(Math.max(parseInt(String(req.query.limite ?? "50"), 10) || 50, 1), 200);
+      const antesDe = req.query.antesDe ? String(req.query.antesDe) : null;
+      const naoLidas = String(req.query.naoLidas ?? "").toLowerCase() === "true";
+      if (antesDe && Number.isNaN(Date.parse(antesDe))) {
+        return res.status(400).json({ erro: "Par\xE2metro `antesDe` deve ser ISO 8601" });
+      }
+      const publicacoes = await storage.listarPublicacoes({
+        limite,
+        antesDe,
+        apenasNaoLidas: naoLidas
+      });
+      res.json({
+        items: publicacoes,
+        proximoCursor: publicacoes.length === limite ? publicacoes[publicacoes.length - 1].criadoEm : null
+      });
+    } catch (e) {
+      console.error("publicacoes (listar) erro:", e);
+      res.status(500).json({ erro: e?.message || String(e) });
+    }
+  });
+  app2.get("/api/publicacoes/nao-lidas-count", async (_req, res) => {
+    try {
+      const n = await storage.contarNaoLidas();
+      res.json({ naoLidas: n });
+    } catch (e) {
+      console.error("publicacoes/nao-lidas-count erro:", e);
+      res.status(500).json({ erro: e?.message || String(e) });
+    }
+  });
+  app2.post("/api/publicacoes/marcar-todas-lidas", async (_req, res) => {
+    try {
+      const marcadas = await storage.marcarTodasLidas();
+      res.json({ marcadas });
+    } catch (e) {
+      console.error("publicacoes/marcar-todas-lidas erro:", e);
+      res.status(500).json({ erro: e?.message || String(e) });
+    }
+  });
+  app2.post("/api/publicacoes/:id/marcar-lida", async (req, res) => {
+    try {
+      const id = parseInt(req.params.id, 10);
+      if (!id || Number.isNaN(id)) {
+        return res.status(400).json({ erro: "ID inv\xE1lido" });
+      }
+      const marcada = await storage.marcarPublicacaoLida(id);
+      res.json({ marcada });
+    } catch (e) {
+      console.error("publicacoes/marcar-lida erro:", e);
       res.status(500).json({ erro: e?.message || String(e) });
     }
   });

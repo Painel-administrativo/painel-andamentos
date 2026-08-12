@@ -94,6 +94,13 @@ export interface Publicacao {
   link: string | null;
   numeroComunicacao: number | null;
   criadoEm: string; // ISO 8601
+  lidoEm: string | null; // ISO 8601, NULL quando ainda não foi lida
+}
+
+// Publicação com dados do processo (para exibir no card global)
+export interface PublicacaoComProcesso extends Publicacao {
+  processoApelido: string | null;
+  processoNumero: string;
 }
 
 // Item cru vindo da API DJEN (usado internamente pelo backend)

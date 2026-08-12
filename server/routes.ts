@@ -735,5 +735,76 @@ export async function registerRoutes(
     }
   });
 
+  // ============================================================
+  // Fase 3B — Card de publicações (scroll infinito + marcação de lida)
+  // ============================================================
+
+  // === Listar publicações (com JOIN em processos) para o card do dashboard ===
+  // Paginado por cursor: `antesDe` = criadoEm da última linha da página anterior.
+  // ?limite=50&antesDe=<iso>&naoLidas=true
+  app.get("/api/publicacoes", async (req, res) => {
+    try {
+      const limite = Math.min(Math.max(parseInt(String(req.query.limite ?? "50"), 10) || 50, 1), 200);
+      const antesDe = req.query.antesDe ? String(req.query.antesDe) : null;
+      const naoLidas = String(req.query.naoLidas ?? "").toLowerCase() === "true";
+
+      if (antesDe && Number.isNaN(Date.parse(antesDe))) {
+        return res.status(400).json({ erro: "Parâmetro `antesDe` deve ser ISO 8601" });
+      }
+
+      const publicacoes = await storage.listarPublicacoes({
+        limite,
+        antesDe,
+        apenasNaoLidas: naoLidas,
+      });
+      res.json({
+        items: publicacoes,
+        proximoCursor: publicacoes.length === limite ? publicacoes[publicacoes.length - 1].criadoEm : null,
+      });
+    } catch (e: any) {
+      console.error("publicacoes (listar) erro:", e);
+      res.status(500).json({ erro: e?.message || String(e) });
+    }
+  });
+
+  // === Contador de não lidas (badge do card) ===
+  app.get("/api/publicacoes/nao-lidas-count", async (_req, res) => {
+    try {
+      const n = await storage.contarNaoLidas();
+      res.json({ naoLidas: n });
+    } catch (e: any) {
+      console.error("publicacoes/nao-lidas-count erro:", e);
+      res.status(500).json({ erro: e?.message || String(e) });
+    }
+  });
+
+  // === Marcar todas como lidas ===
+  // ATENÇÃO: precisa vir ANTES de /:id/marcar-lida
+  //           senão o Express casa `:id = 'marcar-todas-lidas'`.
+  app.post("/api/publicacoes/marcar-todas-lidas", async (_req, res) => {
+    try {
+      const marcadas = await storage.marcarTodasLidas();
+      res.json({ marcadas });
+    } catch (e: any) {
+      console.error("publicacoes/marcar-todas-lidas erro:", e);
+      res.status(500).json({ erro: e?.message || String(e) });
+    }
+  });
+
+  // === Marcar uma publicação como lida ===
+  app.post("/api/publicacoes/:id/marcar-lida", async (req, res) => {
+    try {
+      const id = parseInt(req.params.id, 10);
+      if (!id || Number.isNaN(id)) {
+        return res.status(400).json({ erro: "ID inválido" });
+      }
+      const marcada = await storage.marcarPublicacaoLida(id);
+      res.json({ marcada });
+    } catch (e: any) {
+      console.error("publicacoes/marcar-lida erro:", e);
+      res.status(500).json({ erro: e?.message || String(e) });
+    }
+  });
+
   return httpServer;
 }
