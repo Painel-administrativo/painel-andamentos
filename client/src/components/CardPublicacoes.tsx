@@ -6,8 +6,8 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { ChevronDown, ChevronRight, ExternalLink, CheckCheck, Inbox } from "lucide-react";
-import { formatarCNJ } from "@/lib/cnj";
+import { ChevronDown, ChevronRight, ExternalLink, CheckCheck, Inbox, Copy } from "lucide-react";
+import { formatarCNJ, inferirTribunal, urlPortal } from "@/lib/cnj";
 import type { PublicacaoComProcesso } from "@shared/schema";
 
 type Filtro = "todas" | "nao_lidas";
@@ -287,7 +287,64 @@ export function CardPublicacoes() {
                           <ExternalLink className="h-3 w-3" /> Abrir documento
                         </a>
                       )}
-                      <span className="text-xs text-muted-foreground font-mono">
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        className="h-7 text-xs"
+                        data-testid={`button-copiar-cnj-${pub.id}`}
+                        onClick={async (e) => {
+                          e.stopPropagation();
+                          const cnj = formatarCNJ(pub.processoNumero);
+                          try {
+                            await navigator.clipboard.writeText(cnj);
+                            toast({
+                              title: "Número copiado",
+                              description: cnj,
+                            });
+                          } catch {
+                            toast({
+                              title: "Não consegui copiar",
+                              description: cnj,
+                              variant: "destructive",
+                            });
+                          }
+                        }}
+                        title="Copiar o número CNJ formatado"
+                      >
+                        <Copy className="h-3 w-3 mr-1.5" /> Copiar número
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        className="h-7 text-xs"
+                        data-testid={`button-portal-${pub.id}`}
+                        onClick={async (e) => {
+                          e.stopPropagation();
+                          // Nenhum portal aceita deep-link com o número preenchido,
+                          // então copiamos o CNJ pro clipboard antes de abrir. O usuário
+                          // cola (Ctrl+V) no campo "Nº Processo" após carregar / logar.
+                          const cnj = formatarCNJ(pub.processoNumero);
+                          const tribunal = inferirTribunal(pub.processoNumero);
+                          try {
+                            await navigator.clipboard.writeText(cnj);
+                            toast({
+                              title: "Número copiado",
+                              description: `${cnj} · cole no portal após carregar`,
+                            });
+                          } catch {
+                            // Se clipboard falhar (contexto não-seguro), só abre
+                          }
+                          const url = urlPortal(
+                            tribunal ?? "TJRJ",
+                            pub.processoNumero
+                          );
+                          window.open(url, "_blank", "noopener,noreferrer");
+                        }}
+                        title="Abrir portal do tribunal (copia o número antes)"
+                      >
+                        <ExternalLink className="h-3 w-3 mr-1.5" /> Abrir portal
+                      </Button>
+                      <span className="text-xs text-muted-foreground font-mono ml-auto">
                         {formatarCNJ(pub.processoNumero)}
                       </span>
                     </div>
