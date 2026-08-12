@@ -473,5 +473,92 @@ export async function registerRoutes(
     });
   });
 
+  // === FASE 1: Endpoint de teste do DJEN (Diário de Justiça Eletrônico Nacional) ===
+  // Consulta publicações/intimações de um processo na API pública do CNJ.
+  // Fonte muito mais fresca que o Datajud (diária, a partir das 00h).
+  // A API só aceita conexões do Brasil — Vercel sa-east-1 tem acesso.
+  // Doc: https://comunicaapi.pje.jus.br/api/v1
+  app.post("/api/publicacoes/testar", async (req, res) => {
+    try {
+      const schema = z.object({
+        numero: z.string().min(15),
+        dataDisponibilizacaoInicio: z.string().optional(), // YYYY-MM-DD
+        dataDisponibilizacaoFim: z.string().optional(),    // YYYY-MM-DD
+      });
+      const { numero, dataDisponibilizacaoInicio, dataDisponibilizacaoFim } = schema.parse(req.body);
+      const numero20 = normalizarNumero(numero);
+      if (numero20.length !== 20) {
+        return res.status(400).json({ erro: "Número do processo deve ter 20 dígitos após normalizar" });
+      }
+
+      const params = new URLSearchParams({
+        numeroProcesso: numero20,
+        itensPorPagina: "50",
+      });
+      if (dataDisponibilizacaoInicio) params.set("dataDisponibilizacaoInicio", dataDisponibilizacaoInicio);
+      if (dataDisponibilizacaoFim) params.set("dataDisponibilizacaoFim", dataDisponibilizacaoFim);
+
+      const url = `https://comunicaapi.pje.jus.br/api/v1/comunicacao?${params.toString()}`;
+      const t0 = Date.now();
+      const resp = await fetch(url, {
+        method: "GET",
+        headers: {
+          "Accept": "application/json",
+          "User-Agent": "PainelAndamentos/1.0 (test)",
+        },
+      });
+      const elapsedMs = Date.now() - t0;
+      const contentType = resp.headers.get("content-type") || "";
+      const bodyText = await resp.text();
+      let bodyJson: any = null;
+      try {
+        bodyJson = JSON.parse(bodyText);
+      } catch {
+        // resposta não-JSON (provavelmente HTML de erro do CloudFront)
+      }
+
+      // Resumo enxuto pra facilitar a leitura
+      let resumo: any = null;
+      if (bodyJson && Array.isArray(bodyJson.items)) {
+        resumo = {
+          totalRetornado: bodyJson.count ?? bodyJson.items.length,
+          publicacoes: bodyJson.items.slice(0, 10).map((it: any) => ({
+            data_disponibilizacao: it.data_disponibilizacao ?? it.datadisponibilizacao,
+            siglaTribunal: it.siglaTribunal,
+            tipoComunicacao: it.tipoComunicacao,
+            tipoDocumento: it.tipoDocumento,
+            nomeOrgao: it.nomeOrgao,
+            nomeClasse: it.nomeClasse,
+            numeroComunicacao: it.numeroComunicacao,
+            hash: it.hash,
+            textoPreview: typeof it.texto === "string" ? it.texto.slice(0, 300) : null,
+          })),
+        };
+      }
+
+      res.json({
+        request: {
+          numero20,
+          url,
+        },
+        response: {
+          status: resp.status,
+          contentType,
+          elapsedMs,
+          isJson: bodyJson !== null,
+          bodyPreview: bodyJson === null ? bodyText.slice(0, 500) : null,
+          bodyRaw: bodyJson,
+          resumo,
+        },
+      });
+    } catch (e: any) {
+      if (e instanceof z.ZodError) {
+        return res.status(400).json({ erro: "Payload inválido", detalhes: e.issues });
+      }
+      console.error("publicacoes/testar erro:", e);
+      res.status(500).json({ erro: e?.message || String(e) });
+    }
+  });
+
   return httpServer;
 }

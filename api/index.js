@@ -33691,6 +33691,83 @@ async function registerRoutes(httpServer, app2) {
       atualizadoEm: (/* @__PURE__ */ new Date()).toISOString()
     });
   });
+  app2.post("/api/publicacoes/testar", async (req, res) => {
+    try {
+      const schema = external_exports.object({
+        numero: external_exports.string().min(15),
+        dataDisponibilizacaoInicio: external_exports.string().optional(),
+        // YYYY-MM-DD
+        dataDisponibilizacaoFim: external_exports.string().optional()
+        // YYYY-MM-DD
+      });
+      const { numero, dataDisponibilizacaoInicio, dataDisponibilizacaoFim } = schema.parse(req.body);
+      const numero20 = normalizarNumero(numero);
+      if (numero20.length !== 20) {
+        return res.status(400).json({ erro: "N\xFAmero do processo deve ter 20 d\xEDgitos ap\xF3s normalizar" });
+      }
+      const params = new URLSearchParams({
+        numeroProcesso: numero20,
+        itensPorPagina: "50"
+      });
+      if (dataDisponibilizacaoInicio) params.set("dataDisponibilizacaoInicio", dataDisponibilizacaoInicio);
+      if (dataDisponibilizacaoFim) params.set("dataDisponibilizacaoFim", dataDisponibilizacaoFim);
+      const url = `https://comunicaapi.pje.jus.br/api/v1/comunicacao?${params.toString()}`;
+      const t0 = Date.now();
+      const resp = await fetch(url, {
+        method: "GET",
+        headers: {
+          "Accept": "application/json",
+          "User-Agent": "PainelAndamentos/1.0 (test)"
+        }
+      });
+      const elapsedMs = Date.now() - t0;
+      const contentType = resp.headers.get("content-type") || "";
+      const bodyText = await resp.text();
+      let bodyJson = null;
+      try {
+        bodyJson = JSON.parse(bodyText);
+      } catch {
+      }
+      let resumo = null;
+      if (bodyJson && Array.isArray(bodyJson.items)) {
+        resumo = {
+          totalRetornado: bodyJson.count ?? bodyJson.items.length,
+          publicacoes: bodyJson.items.slice(0, 10).map((it) => ({
+            data_disponibilizacao: it.data_disponibilizacao ?? it.datadisponibilizacao,
+            siglaTribunal: it.siglaTribunal,
+            tipoComunicacao: it.tipoComunicacao,
+            tipoDocumento: it.tipoDocumento,
+            nomeOrgao: it.nomeOrgao,
+            nomeClasse: it.nomeClasse,
+            numeroComunicacao: it.numeroComunicacao,
+            hash: it.hash,
+            textoPreview: typeof it.texto === "string" ? it.texto.slice(0, 300) : null
+          }))
+        };
+      }
+      res.json({
+        request: {
+          numero20,
+          url
+        },
+        response: {
+          status: resp.status,
+          contentType,
+          elapsedMs,
+          isJson: bodyJson !== null,
+          bodyPreview: bodyJson === null ? bodyText.slice(0, 500) : null,
+          bodyRaw: bodyJson,
+          resumo
+        }
+      });
+    } catch (e) {
+      if (e instanceof external_exports.ZodError) {
+        return res.status(400).json({ erro: "Payload inv\xE1lido", detalhes: e.issues });
+      }
+      console.error("publicacoes/testar erro:", e);
+      res.status(500).json({ erro: e?.message || String(e) });
+    }
+  });
   return httpServer;
 }
 
