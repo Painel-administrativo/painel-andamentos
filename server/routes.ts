@@ -605,9 +605,11 @@ export async function registerRoutes(
       for (let i = 0; i < procs.length; i++) {
         const p = procs[i];
         // Delay entre chamadas (não antes da primeira).
-        // 1000ms: em 15 procs = 14s de espera + ~8s de fetch = ~22s por lote,
+        // 2500ms: em 8 procs = 17.5s de espera + ~6s de fetch = ~24s por lote,
         // com folga dentro dos 60s do Vercel.
-        if (i > 0) await sleep(1000);
+        // Aumentado após observar 429s cumulativos com 1000ms (IP do Vercel gru1
+        // parece ter quota mais rígida no DJEN do que uma janela curta).
+        if (i > 0) await sleep(2500);
         try {
           const numero20 = normalizarNumero(p.numero);
           if (numero20.length !== 20) {
@@ -631,7 +633,7 @@ export async function registerRoutes(
           if (resp.status === 429) {
             // Rate limit — espera mais e refaz
             erros429++;
-            await sleep(5000);
+            await sleep(15000);
             const resp2 = await fetch(url, {
               method: "GET",
               headers: {

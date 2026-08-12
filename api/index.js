@@ -33872,7 +33872,7 @@ async function registerRoutes(httpServer, app2) {
       const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
       for (let i = 0; i < procs.length; i++) {
         const p = procs[i];
-        if (i > 0) await sleep(1e3);
+        if (i > 0) await sleep(2500);
         try {
           const numero20 = normalizarNumero(p.numero);
           if (numero20.length !== 20) {
@@ -33895,7 +33895,7 @@ async function registerRoutes(httpServer, app2) {
           });
           if (resp.status === 429) {
             erros429++;
-            await sleep(5e3);
+            await sleep(15e3);
             const resp2 = await fetch(url, {
               method: "GET",
               headers: {
