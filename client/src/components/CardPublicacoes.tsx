@@ -34,6 +34,44 @@ function limparTexto(t: string | null): string {
   return t.replace(/\s+/g, " ").trim();
 }
 
+// Retorna a data no formato DD/MM/AAAA a partir de um objeto Date.
+function formatarBR(d: Date): string {
+  const dia = String(d.getUTCDate()).padStart(2, "0");
+  const mes = String(d.getUTCMonth() + 1).padStart(2, "0");
+  const ano = d.getUTCFullYear();
+  return `${dia}/${mes}/${ano}`;
+}
+
+// Avança N dias úteis a partir de uma data (pulando sábado/domingo).
+// Não considera feriados forenses — mantido simples de propósito.
+function proximoDiaUtil(base: Date, pular: number): Date {
+  const d = new Date(base.getTime());
+  let restam = pular;
+  while (restam > 0) {
+    d.setUTCDate(d.getUTCDate() + 1);
+    const wd = d.getUTCDay(); // 0=domingo, 6=sábado
+    if (wd !== 0 && wd !== 6) restam -= 1;
+  }
+  return d;
+}
+
+// Retorna { publicacao, inicio } calculadas a partir da data de disponibilização.
+// Regra CPC art. 224 §3º: publicação = 1º dia útil seguinte à disponibilização;
+// início do prazo = 1º dia útil seguinte à publicação.
+function calcularDatasPrazo(dataDispIso: string): {
+  publicacao: string;
+  inicio: string;
+} | null {
+  const s = dataDispIso.slice(0, 10);
+  const [ano, mes, dia] = s.split("-").map(Number);
+  if (!ano || !mes || !dia) return null;
+  // Constrói em UTC pra evitar salto de fuso.
+  const disp = new Date(Date.UTC(ano, mes - 1, dia));
+  const pub = proximoDiaUtil(disp, 1);
+  const inicio = proximoDiaUtil(pub, 1);
+  return { publicacao: formatarBR(pub), inicio: formatarBR(inicio) };
+}
+
 // ============================================================
 // Componente principal
 // ============================================================
@@ -272,6 +310,32 @@ export function CardPublicacoes() {
                         <span className="font-medium">Classe:</span> {pub.nomeClasse}
                       </div>
                     )}
+                    {/* Datas calculadas (art. 224 §3º CPC) */}
+                    {(() => {
+                      const datas = calcularDatasPrazo(pub.dataDisponibilizacao);
+                      if (!datas) return null;
+                      return (
+                        <div
+                          className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs"
+                          data-testid={`datas-prazo-${pub.id}`}
+                        >
+                          <span className="text-muted-foreground">
+                            <span className="font-medium">Disponibilizado:</span>{" "}
+                            {formatarDataPub(pub.dataDisponibilizacao)}
+                          </span>
+                          <span className="text-muted-foreground">
+                            <span className="font-medium">Publicado:</span>{" "}
+                            {datas.publicacao}
+                          </span>
+                          <span
+                            className="font-medium text-primary"
+                            title="1º dia útil após a publicação. Não considera feriados forenses."
+                          >
+                            Prazo começa: {datas.inicio}
+                          </span>
+                        </div>
+                      );
+                    })()}
                     <div className="text-sm text-foreground/90 whitespace-pre-wrap leading-relaxed">
                       {limparTexto(pub.texto) || <em className="text-muted-foreground">Sem texto disponível.</em>}
                     </div>
