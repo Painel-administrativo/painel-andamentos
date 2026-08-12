@@ -7,6 +7,7 @@ import { Logo } from "@/components/Logo";
 import { ProcessoDialog } from "@/components/ProcessoDialog";
 import { BulkAddDialog } from "@/components/BulkAddDialog";
 import { Timeline } from "@/components/Timeline";
+import { CardPublicacoes } from "@/components/CardPublicacoes";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
@@ -60,7 +61,7 @@ export default function Home() {
   const { toast } = useToast();
   const { theme, toggle } = useTheme();
 
-  const [aba, setAba] = useState<"painel" | "processos">("painel");
+  const [aba, setAba] = useState<"painel" | "processos" | "publicacoes">("painel");
   const [busca, setBusca] = useState("");
   const [filtroTribunal, setFiltroTribunal] = useState<"Todos" | "TJRJ" | "TRF2">("Todos");
   const [soRecentes, setSoRecentes] = useState(false);
@@ -439,6 +440,10 @@ export default function Home() {
                   <span className="ml-1.5 text-xs text-muted-foreground">({processos.length})</span>
                 )}
               </TabsTrigger>
+              <TabsTrigger value="publicacoes" data-testid="tab-publicacoes">
+                Publicações
+                <BadgeNaoLidas />
+              </TabsTrigger>
             </TabsList>
           </Tabs>
 
@@ -517,8 +522,10 @@ export default function Home() {
           </div>
         </div>
 
-        {/* Empty state */}
-        {semProcessos ? (
+        {/* Aba "Publicações" — substitui a tabela toda */}
+        {aba === "publicacoes" ? (
+          <CardPublicacoes />
+        ) : semProcessos ? (
           <EmptyState onAdd={() => setAddOpen(true)} onBulk={() => setBulkOpen(true)} />
         ) : (
           <>
@@ -1096,5 +1103,23 @@ function TabelaSkeleton() {
         </div>
       ))}
     </div>
+  );
+}
+
+// Badge do contador de publicações não lidas, mostrado dentro da aba "Publicações".
+function BadgeNaoLidas() {
+  const { data } = useQuery<{ naoLidas: number }>({
+    queryKey: ["/api/publicacoes/nao-lidas-count"],
+    refetchInterval: 60_000,
+  });
+  const n = data?.naoLidas ?? 0;
+  if (n === 0) return null;
+  return (
+    <span
+      className="ml-1.5 rounded-full bg-primary text-primary-foreground text-[10px] font-semibold px-1.5 py-0.5 leading-none"
+      data-testid="tab-badge-nao-lidas"
+    >
+      {n}
+    </span>
   );
 }

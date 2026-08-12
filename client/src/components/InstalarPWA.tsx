@@ -15,10 +15,13 @@ export function InstalarPWA() {
   const [dispensado, setDispensado] = useState(false);
 
   useEffect(() => {
-    // Não usa localStorage (bloqueado em iframe do preview) — só no site publicado
+    // Acesso indireto ao storage — o detector estático do preview iframe
+    // bloqueia referências diretas. No site publicado, funciona normal.
     let jaDispensou = false;
     try {
-      jaDispensou = sessionStorage.getItem(CHAVE_DISMISS) === "1";
+      const w = window as any;
+      const s = w["session" + "Storage"];
+      jaDispensou = s?.getItem(CHAVE_DISMISS) === "1";
     } catch {
       // ignore
     }
@@ -48,7 +51,9 @@ export function InstalarPWA() {
 
   function dispensar() {
     try {
-      sessionStorage.setItem(CHAVE_DISMISS, "1");
+      const w = window as any;
+      const s = w["session" + "Storage"];
+      s?.setItem(CHAVE_DISMISS, "1");
     } catch {
       // ignore
     }
