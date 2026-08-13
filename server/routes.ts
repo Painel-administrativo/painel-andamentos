@@ -806,5 +806,23 @@ export async function registerRoutes(
     }
   });
 
+  // Toggle informado: sem body — se estiver NULL, seta now(); senão, limpa.
+  app.post("/api/publicacoes/:id/alternar-informada", async (req, res) => {
+    try {
+      const id = parseInt(req.params.id, 10);
+      if (!id || Number.isNaN(id)) {
+        return res.status(400).json({ erro: "ID inválido" });
+      }
+      const resultado = await storage.alternarPublicacaoInformada(id);
+      if (resultado === null) {
+        return res.status(404).json({ erro: "Publicação não encontrada" });
+      }
+      res.json(resultado);
+    } catch (e: any) {
+      console.error("publicacoes/alternar-informada erro:", e);
+      res.status(500).json({ erro: e?.message || String(e) });
+    }
+  });
+
   return httpServer;
 }

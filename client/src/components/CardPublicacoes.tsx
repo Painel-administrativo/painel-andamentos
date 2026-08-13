@@ -6,7 +6,15 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { ChevronDown, ChevronRight, ExternalLink, CheckCheck, Inbox, Copy } from "lucide-react";
+import {
+  ChevronDown,
+  ChevronRight,
+  ExternalLink,
+  CheckCheck,
+  Inbox,
+  Copy,
+  MessageSquare,
+} from "lucide-react";
 import { formatarCNJ, inferirTribunal, urlPortal } from "@/lib/cnj";
 import type { PublicacaoComProcesso } from "@shared/schema";
 
@@ -39,6 +47,18 @@ function formatarBR(d: Date): string {
   const dia = String(d.getUTCDate()).padStart(2, "0");
   const mes = String(d.getUTCMonth() + 1).padStart(2, "0");
   const ano = d.getUTCFullYear();
+  return `${dia}/${mes}/${ano}`;
+}
+
+// Retorna DD/MM/AAAA a partir de um ISO 8601 (timestamptz).
+// Usa fuso local do navegador para exibir a data que o usuário percebe.
+function formatarISOLocalBR(iso: string | null): string {
+  if (!iso) return "";
+  const d = new Date(iso);
+  if (isNaN(d.getTime())) return "";
+  const dia = String(d.getDate()).padStart(2, "0");
+  const mes = String(d.getMonth() + 1).padStart(2, "0");
+  const ano = d.getFullYear();
   return `${dia}/${mes}/${ano}`;
 }
 
@@ -130,14 +150,82 @@ export function CardPublicacoes() {
   }, [hasNextPage, isFetchingNextPage, fetchNextPage]);
 
   // -------- Marcar como lida (ao expandir) --------
+  // Otimistic update: seta lidoEm=agora na cache antes da resposta chegar.
   const marcarLidaMut = useMutation({
     mutationFn: async (id: number) => {
       const resp = await apiRequest("POST", `/api/publicacoes/${id}/marcar-lida`);
       return resp.json();
     },
+    onMutate: async (id: number) => {
+      const agora = new Date().toISOString();
+      queryClient.setQueriesData<{ pages: RespListagem[] }>(
+        { queryKey: ["/api/publicacoes"] },
+        (old) => {
+          if (!old) return old;
+          return {
+            ...old,
+            pages: old.pages.map((page) => ({
+              ...page,
+              items: page.items.map((p) =>
+                p.id === id && p.lidoEm === null ? { ...p, lidoEm: agora } : p
+              ),
+            })),
+          };
+        }
+      );
+    },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/publicacoes/nao-lidas-count"] });
-      // Não invalido a listagem — dá pra atualizar in-place pra evitar re-render.
+    },
+  });
+
+  // -------- Toggle informado --------
+  // Otimistic update também — alterna entre null e now() na cache.
+  const alternarInformadaMut = useMutation({
+    mutationFn: async (id: number) => {
+      const resp = await apiRequest(
+        "POST",
+        `/api/publicacoes/${id}/alternar-informada`
+      );
+      return resp.json() as Promise<{ informadoEm: string | null }>;
+    },
+    onMutate: async (id: number) => {
+      const agora = new Date().toISOString();
+      queryClient.setQueriesData<{ pages: RespListagem[] }>(
+        { queryKey: ["/api/publicacoes"] },
+        (old) => {
+          if (!old) return old;
+          return {
+            ...old,
+            pages: old.pages.map((page) => ({
+              ...page,
+              items: page.items.map((p) =>
+                p.id === id
+                  ? { ...p, informadoEm: p.informadoEm === null ? agora : null }
+                  : p
+              ),
+            })),
+          };
+        }
+      );
+    },
+    onSuccess: (data, id) => {
+      // Sincroniza com o valor real do servidor (pode diferir por milissegundos).
+      queryClient.setQueriesData<{ pages: RespListagem[] }>(
+        { queryKey: ["/api/publicacoes"] },
+        (old) => {
+          if (!old) return old;
+          return {
+            ...old,
+            pages: old.pages.map((page) => ({
+              ...page,
+              items: page.items.map((p) =>
+                p.id === id ? { ...p, informadoEm: data.informadoEm } : p
+              ),
+            })),
+          };
+        }
+      );
     },
   });
 
@@ -310,10 +398,9 @@ export function CardPublicacoes() {
                         <span className="font-medium">Classe:</span> {pub.nomeClasse}
                       </div>
                     )}
-                    {/* Datas calculadas (art. 224 §3º CPC) */}
+                    {/* Datas de prazo + status de leitura/comunicação */}
                     {(() => {
                       const datas = calcularDatasPrazo(pub.dataDisponibilizacao);
-                      if (!datas) return null;
                       return (
                         <div
                           className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs"
@@ -323,16 +410,61 @@ export function CardPublicacoes() {
                             <span className="font-medium">Disponibilizado:</span>{" "}
                             {formatarDataPub(pub.dataDisponibilizacao)}
                           </span>
-                          <span className="text-muted-foreground">
-                            <span className="font-medium">Publicado:</span>{" "}
-                            {datas.publicacao}
-                          </span>
-                          <span
-                            className="font-medium text-primary"
-                            title="1º dia útil após a publicação. Não considera feriados forenses."
-                          >
-                            Prazo começa: {datas.inicio}
-                          </span>
+                          {datas && (
+                            <>
+                              <span className="text-muted-foreground">
+                                <span className="font-medium">Publicado:</span>{" "}
+                                {datas.publicacao}
+                              </span>
+                              <span
+                                className="font-medium text-primary"
+                                title="1º dia útil após a publicação. Não considera feriados forenses."
+                              >
+                                Prazo começa: {datas.inicio}
+                              </span>
+                            </>
+                          )}
+                          {pub.lidoEm && (
+                            <span
+                              className="text-muted-foreground"
+                              title={`Lido em ${new Date(pub.lidoEm).toLocaleString("pt-BR")}`}
+                            >
+                              <span className="font-medium">Lido em:</span>{" "}
+                              {formatarISOLocalBR(pub.lidoEm)}
+                            </span>
+                          )}
+                          {pub.informadoEm ? (
+                            <span
+                              className="text-muted-foreground inline-flex items-center gap-1"
+                              title={`Informado em ${new Date(pub.informadoEm).toLocaleString("pt-BR")} · clique no botão para desmarcar`}
+                            >
+                              <span className="font-medium">Informado em:</span>{" "}
+                              {formatarISOLocalBR(pub.informadoEm)}
+                              <button
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  alternarInformadaMut.mutate(pub.id);
+                                }}
+                                className="ml-1 text-primary hover:underline"
+                                data-testid={`button-desmarcar-informada-${pub.id}`}
+                                title="Desmarcar informado"
+                              >
+                                (desmarcar)
+                              </button>
+                            </span>
+                          ) : (
+                            <button
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                alternarInformadaMut.mutate(pub.id);
+                              }}
+                              className="inline-flex items-center gap-1 rounded-md border border-border px-2 py-0.5 text-xs text-foreground hover:bg-muted transition-colors"
+                              data-testid={`button-marcar-informada-${pub.id}`}
+                              title="Marcar como informado ao cliente (bate a data de hoje)"
+                            >
+                              <MessageSquare className="h-3 w-3" /> Marcar informado
+                            </button>
+                          )}
                         </div>
                       );
                     })()}

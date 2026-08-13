@@ -29168,7 +29168,8 @@ function mapPublicacao(r) {
     link: r.link,
     numeroComunicacao: r.numero_comunicacao,
     criadoEm: r.criado_em,
-    lidoEm: r.lido_em
+    lidoEm: r.lido_em,
+    informadoEm: r.informado_em
   };
 }
 function mapPublicacaoComProcesso(r) {
@@ -29346,7 +29347,7 @@ var PgStorage = class {
     const { rows } = await pool.query(
       `SELECT id, processo_id, hash, data_disponibilizacao,
               tipo_comunicacao, tipo_documento, nome_orgao, nome_classe,
-              texto, link, numero_comunicacao, criado_em, lido_em
+              texto, link, numero_comunicacao, criado_em, lido_em, informado_em
        FROM publicacoes
        WHERE processo_id = $1
        ORDER BY data_disponibilizacao DESC, id DESC`,
@@ -29358,7 +29359,7 @@ var PgStorage = class {
     const { rows } = await pool.query(
       `SELECT id, processo_id, hash, data_disponibilizacao,
               tipo_comunicacao, tipo_documento, nome_orgao, nome_classe,
-              texto, link, numero_comunicacao, criado_em, lido_em
+              texto, link, numero_comunicacao, criado_em, lido_em, informado_em
        FROM publicacoes
        WHERE criado_em >= $1
        ORDER BY criado_em DESC, id DESC`,
@@ -29384,7 +29385,7 @@ var PgStorage = class {
     const { rows } = await pool.query(
       `SELECT pub.id, pub.processo_id, pub.hash, pub.data_disponibilizacao,
               pub.tipo_comunicacao, pub.tipo_documento, pub.nome_orgao, pub.nome_classe,
-              pub.texto, pub.link, pub.numero_comunicacao, pub.criado_em, pub.lido_em,
+              pub.texto, pub.link, pub.numero_comunicacao, pub.criado_em, pub.lido_em, pub.informado_em,
               pr.apelido AS processo_apelido, pr.numero AS processo_numero
        FROM publicacoes pub
        JOIN processos pr ON pr.id = pub.processo_id
@@ -29413,6 +29414,19 @@ var PgStorage = class {
       `UPDATE publicacoes SET lido_em = now() WHERE lido_em IS NULL`
     );
     return rowCount ?? 0;
+  }
+  // Toggle: se informado_em está NULL, seta pra now(); se preenchido, volta pra NULL.
+  // Retorna null se o ID não existir.
+  async alternarPublicacaoInformada(id) {
+    const { rows } = await pool.query(
+      `UPDATE publicacoes
+         SET informado_em = CASE WHEN informado_em IS NULL THEN now() ELSE NULL END
+       WHERE id = $1
+       RETURNING informado_em`,
+      [id]
+    );
+    if (rows.length === 0) return null;
+    return { informadoEm: rows[0].informado_em };
   }
   async upsertSnapshot(processoId, data) {
     const { rows } = await pool.query(
@@ -34096,6 +34110,22 @@ async function registerRoutes(httpServer, app2) {
       res.json({ marcada });
     } catch (e) {
       console.error("publicacoes/marcar-lida erro:", e);
+      res.status(500).json({ erro: e?.message || String(e) });
+    }
+  });
+  app2.post("/api/publicacoes/:id/alternar-informada", async (req, res) => {
+    try {
+      const id = parseInt(req.params.id, 10);
+      if (!id || Number.isNaN(id)) {
+        return res.status(400).json({ erro: "ID inv\xE1lido" });
+      }
+      const resultado = await storage.alternarPublicacaoInformada(id);
+      if (resultado === null) {
+        return res.status(404).json({ erro: "Publica\xE7\xE3o n\xE3o encontrada" });
+      }
+      res.json(resultado);
+    } catch (e) {
+      console.error("publicacoes/alternar-informada erro:", e);
       res.status(500).json({ erro: e?.message || String(e) });
     }
   });
