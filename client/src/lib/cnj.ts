@@ -12,13 +12,18 @@ export function formatarCNJ(numero: string): string {
 }
 
 // Infere tribunal pelo segmento J.TR
-export function inferirTribunal(numero: string): "TJRJ" | "TRF2" | null {
+// J = segmento do Poder Judiciário (5 = Justiça do Trabalho, 8 = Estadual, 4 = Federal)
+// TR = tribunal dentro do segmento
+export type Tribunal = "TJRJ" | "TRF2" | "TRT1";
+
+export function inferirTribunal(numero: string): Tribunal | null {
   const d = normalizarNumero(numero);
   if (d.length !== 20) return null;
   const j = d.substring(13, 14);
   const tr = d.substring(14, 16);
   if (j === "8" && tr === "19") return "TJRJ";
   if (j === "4" && tr === "02") return "TRF2";
+  if (j === "5" && tr === "01") return "TRT1";
   return null;
 }
 
@@ -75,6 +80,12 @@ export function urlPortal(tribunal: string, numero: string): string {
     // e-Proc TRF2: consulta pública de processos (aceita chave/CPF/OAB também).
     // Não aceita deep-link com número — abre no formulário de busca.
     return "https://eproc.trf2.jus.br/eproc/externo_controlador.php?acao=processo_consulta_publica";
+  }
+  if (tribunal === "TRT1") {
+    // PJe TRT1: acesso logado com token/certificado. Uma vez logado, acesso
+    // completo aos autos. Não aceita deep-link — o painel copia o CNJ pro
+    // clipboard antes de abrir.
+    return "https://pje.trt1.jus.br/consultaprocessual";
   }
   // TJRJ: Portal de Serviços (login com token/certificado). Uma vez logado,
   // acesso completo aos autos, inclusive segredo de justiça. Também não

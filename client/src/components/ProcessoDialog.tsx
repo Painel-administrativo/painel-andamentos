@@ -131,6 +131,7 @@ export function ProcessoDialog({ open, onOpenChange, processo }: Props) {
               <SelectContent>
                 <SelectItem value="TJRJ">TJRJ — Tribunal de Justiça do RJ</SelectItem>
                 <SelectItem value="TRF2">TRF2 — Tribunal Regional Federal 2ª Região</SelectItem>
+                <SelectItem value="TRT1">TRT1 — Tribunal Regional do Trabalho 1ª Região (RJ)</SelectItem>
               </SelectContent>
             </Select>
           </div>
