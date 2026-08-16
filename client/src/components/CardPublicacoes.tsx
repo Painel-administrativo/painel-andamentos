@@ -509,18 +509,14 @@ export function CardPublicacoes() {
                       >
                         <Copy className="h-3 w-3 mr-1.5" /> Copiar número
                       </Button>
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        className="h-7 text-xs"
-                        data-testid={`button-portal-${pub.id}`}
-                        onClick={async (e) => {
+                      {(() => {
+                        const tribunalDetectado = inferirTribunal(pub.processoNumero);
+                        const abrirPortal = async (e: React.MouseEvent, url: string) => {
                           e.stopPropagation();
                           // Nenhum portal aceita deep-link com o número preenchido,
                           // então copiamos o CNJ pro clipboard antes de abrir. O usuário
                           // cola (Ctrl+V) no campo "Nº Processo" após carregar / logar.
                           const cnj = formatarCNJ(pub.processoNumero);
-                          const tribunal = inferirTribunal(pub.processoNumero);
                           try {
                             await navigator.clipboard.writeText(cnj);
                             toast({
@@ -530,16 +526,50 @@ export function CardPublicacoes() {
                           } catch {
                             // Se clipboard falhar (contexto não-seguro), só abre
                           }
-                          const url = urlPortal(
-                            tribunal ?? "TJRJ",
-                            pub.processoNumero
-                          );
                           window.open(url, "_blank", "noopener,noreferrer");
-                        }}
-                        title="Abrir portal do tribunal (copia o número antes)"
-                      >
-                        <ExternalLink className="h-3 w-3 mr-1.5" /> Abrir portal
-                      </Button>
+                        };
+
+                        // TRT1: dois botões (1º e 2º grau)
+                        if (tribunalDetectado === "TRT1") {
+                          return (
+                            <>
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                className="h-7 text-xs"
+                                data-testid={`button-portal-1g-${pub.id}`}
+                                onClick={(e) => abrirPortal(e, urlPortal("TRT1", pub.processoNumero, "1g"))}
+                                title="Abrir PJe TRT1 1º grau (copia o número antes)"
+                              >
+                                <ExternalLink className="h-3 w-3 mr-1.5" /> PJe 1º grau
+                              </Button>
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                className="h-7 text-xs"
+                                data-testid={`button-portal-2g-${pub.id}`}
+                                onClick={(e) => abrirPortal(e, urlPortal("TRT1", pub.processoNumero, "2g"))}
+                                title="Abrir PJe TRT1 2º grau (copia o número antes)"
+                              >
+                                <ExternalLink className="h-3 w-3 mr-1.5" /> PJe 2º grau
+                              </Button>
+                            </>
+                          );
+                        }
+
+                        return (
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            className="h-7 text-xs"
+                            data-testid={`button-portal-${pub.id}`}
+                            onClick={(e) => abrirPortal(e, urlPortal(tribunalDetectado ?? "TJRJ", pub.processoNumero))}
+                            title="Abrir portal do tribunal (copia o número antes)"
+                          >
+                            <ExternalLink className="h-3 w-3 mr-1.5" /> Abrir portal
+                          </Button>
+                        );
+                      })()}
                       <span className="text-xs text-muted-foreground font-mono ml-auto">
                         {formatarCNJ(pub.processoNumero)}
                       </span>

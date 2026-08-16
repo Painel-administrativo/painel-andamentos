@@ -964,15 +964,9 @@ function LinhaProcesso({
             >
               <Copy className="h-3.5 w-3.5 mr-1.5" /> Copiar número
             </Button>
-            <Button
-              variant={segundoGrau ? "default" : "outline"}
-              size="sm"
-              data-testid={`button-portal-${p.id}`}
-              onClick={async () => {
-                // Nenhum portal aceita deep-link com o número preenchido, então
-                // copiamos o CNJ pro clipboard automaticamente antes de abrir.
-                // O usuário cola (Ctrl+V) no campo "Nº Processo" após carregar
-                // (ou logar, no caso do TJRJ).
+            {(() => {
+              // Helper compartilhado: copia CNJ pro clipboard e abre URL em nova aba
+              const abrirPortal = async (url: string) => {
                 const cnj = formatarCNJ(p.numero);
                 try {
                   await navigator.clipboard.writeText(cnj);
@@ -983,11 +977,45 @@ function LinhaProcesso({
                 } catch {
                   // Se clipboard falhar (contexto não-seguro), só abre
                 }
-                window.open(urlPortal(p.tribunal, p.numero), "_blank", "noopener,noreferrer");
-              }}
-            >
-              <ExternalLink className="h-3.5 w-3.5 mr-1.5" /> Abrir no portal
-            </Button>
+                window.open(url, "_blank", "noopener,noreferrer");
+              };
+
+              // TRT1: dois botões (1º e 2º grau) porque o PJe TRT1 tem endereços
+              // distintos por instância. Os demais tribunais mantêm botão único.
+              if (p.tribunal === "TRT1") {
+                return (
+                  <>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      data-testid={`button-portal-1g-${p.id}`}
+                      onClick={() => abrirPortal(urlPortal(p.tribunal, p.numero, "1g"))}
+                    >
+                      <ExternalLink className="h-3.5 w-3.5 mr-1.5" /> PJe 1º grau
+                    </Button>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      data-testid={`button-portal-2g-${p.id}`}
+                      onClick={() => abrirPortal(urlPortal(p.tribunal, p.numero, "2g"))}
+                    >
+                      <ExternalLink className="h-3.5 w-3.5 mr-1.5" /> PJe 2º grau
+                    </Button>
+                  </>
+                );
+              }
+
+              return (
+                <Button
+                  variant={segundoGrau ? "default" : "outline"}
+                  size="sm"
+                  data-testid={`button-portal-${p.id}`}
+                  onClick={() => abrirPortal(urlPortal(p.tribunal, p.numero))}
+                >
+                  <ExternalLink className="h-3.5 w-3.5 mr-1.5" /> Abrir no portal
+                </Button>
+              );
+            })()}
             {!segundoGrau && (
               <Button
                 variant="outline"

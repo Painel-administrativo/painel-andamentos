@@ -75,7 +75,10 @@ export function tempoRelativo(iso?: string | null): string {
 
 // URL do portal do tribunal (nenhum aceita deep-link com número preenchido,
 // mas o painel copia o CNJ pro clipboard antes de abrir).
-export function urlPortal(tribunal: string, numero: string): string {
+// Para TRT1, passe grau="1g" ou "2g" pra escolher entre PJe 1º/2º grau.
+// A consulta pública (sem login) do TRT1 só mostra decisões — pra ver petições
+// das partes é preciso logar no PJe com certificado digital.
+export function urlPortal(tribunal: string, numero: string, grau?: "1g" | "2g"): string {
   if (tribunal === "TRF2") {
     // e-Proc TRF2: consulta pública de processos (aceita chave/CPF/OAB também).
     // Não aceita deep-link com número — abre no formulário de busca.
@@ -83,9 +86,11 @@ export function urlPortal(tribunal: string, numero: string): string {
   }
   if (tribunal === "TRT1") {
     // PJe TRT1: acesso logado com token/certificado. Uma vez logado, acesso
-    // completo aos autos. Não aceita deep-link — o painel copia o CNJ pro
-    // clipboard antes de abrir.
-    return "https://pje.trt1.jus.br/consultaprocessual";
+    // completo aos autos (petições das partes, contestação etc.).
+    // Não aceita deep-link — o painel copia o CNJ pro clipboard antes de abrir.
+    return grau === "2g"
+      ? "https://pje.trt1.jus.br/segundograu/login.seam"
+      : "https://pje.trt1.jus.br/primeirograu/login.seam";
   }
   // TJRJ: Portal de Serviços (login com token/certificado). Uma vez logado,
   // acesso completo aos autos, inclusive segredo de justiça. Também não
