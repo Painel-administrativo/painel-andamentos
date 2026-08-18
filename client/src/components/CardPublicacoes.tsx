@@ -529,8 +529,9 @@ export function CardPublicacoes() {
                           window.open(url, "_blank", "noopener,noreferrer");
                         };
 
-                        // TRT1: dois botões (1º e 2º grau)
-                        if (tribunalDetectado === "TRT1") {
+                        // TRT1 e TJRS: dois botões (1º e 2º grau)
+                        if (tribunalDetectado === "TRT1" || tribunalDetectado === "TJRS") {
+                          const label = tribunalDetectado === "TRT1" ? "PJe" : "e-Proc";
                           return (
                             <>
                               <Button
@@ -538,20 +539,20 @@ export function CardPublicacoes() {
                                 variant="outline"
                                 className="h-7 text-xs"
                                 data-testid={`button-portal-1g-${pub.id}`}
-                                onClick={(e) => abrirPortal(e, urlPortal("TRT1", pub.processoNumero, "1g"))}
-                                title="Abrir PJe TRT1 1º grau (copia o número antes)"
+                                onClick={(e) => abrirPortal(e, urlPortal(tribunalDetectado, pub.processoNumero, "1g"))}
+                                title={`Abrir ${label} ${tribunalDetectado} 1º grau (copia o número antes)`}
                               >
-                                <ExternalLink className="h-3 w-3 mr-1.5" /> PJe 1º grau
+                                <ExternalLink className="h-3 w-3 mr-1.5" /> {label} 1º grau
                               </Button>
                               <Button
                                 size="sm"
                                 variant="outline"
                                 className="h-7 text-xs"
                                 data-testid={`button-portal-2g-${pub.id}`}
-                                onClick={(e) => abrirPortal(e, urlPortal("TRT1", pub.processoNumero, "2g"))}
-                                title="Abrir PJe TRT1 2º grau (copia o número antes)"
+                                onClick={(e) => abrirPortal(e, urlPortal(tribunalDetectado, pub.processoNumero, "2g"))}
+                                title={`Abrir ${label} ${tribunalDetectado} 2º grau (copia o número antes)`}
                               >
-                                <ExternalLink className="h-3 w-3 mr-1.5" /> PJe 2º grau
+                                <ExternalLink className="h-3 w-3 mr-1.5" /> {label} 2º grau
                               </Button>
                             </>
                           );

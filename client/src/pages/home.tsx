@@ -63,7 +63,7 @@ export default function Home() {
 
   const [aba, setAba] = useState<"painel" | "processos" | "publicacoes">("painel");
   const [busca, setBusca] = useState("");
-  const [filtroTribunal, setFiltroTribunal] = useState<"Todos" | "TJRJ" | "TRF2" | "TRT1" | "TJSP">("Todos");
+  const [filtroTribunal, setFiltroTribunal] = useState<"Todos" | "TJRJ" | "TRF2" | "TRT1" | "TJSP" | "TJRS">("Todos");
   const [soRecentes, setSoRecentes] = useState(false);
   const [soNaoLidos, setSoNaoLidos] = useState(false);
 
@@ -408,7 +408,7 @@ export default function Home() {
             <div className="leading-tight">
               <h1 className="text-sm font-semibold text-foreground">Painel de Andamentos</h1>
               <p className="text-xs text-muted-foreground hidden sm:block">
-                Acompanhamento processual · TJRJ, TRF2, TRT1 e TJSP
+                Acompanhamento processual · TJRJ, TRF2, TRT1, TJSP e TJRS
               </p>
             </div>
           </div>
@@ -542,7 +542,7 @@ export default function Home() {
                 />
               </div>
               <div className="flex items-center gap-1 rounded-md border border-border p-0.5">
-                {(["Todos", "TJRJ", "TRF2", "TRT1", "TJSP"] as const).map((t) => (
+                {(["Todos", "TJRJ", "TRF2", "TRT1", "TJSP", "TJRS"] as const).map((t) => (
                   <button
                     key={t}
                     onClick={() => setFiltroTribunal(t)}
@@ -980,9 +980,10 @@ function LinhaProcesso({
                 window.open(url, "_blank", "noopener,noreferrer");
               };
 
-              // TRT1: dois botões (1º e 2º grau) porque o PJe TRT1 tem endereços
-              // distintos por instância. Os demais tribunais mantêm botão único.
-              if (p.tribunal === "TRT1") {
+              // TRT1 e TJRS: dois botões (1º e 2º grau) porque esses portais têm
+              // endereços distintos por instância. Os demais mantêm botão único.
+              if (p.tribunal === "TRT1" || p.tribunal === "TJRS") {
+                const label = p.tribunal === "TRT1" ? "PJe" : "e-Proc";
                 return (
                   <>
                     <Button
@@ -991,7 +992,7 @@ function LinhaProcesso({
                       data-testid={`button-portal-1g-${p.id}`}
                       onClick={() => abrirPortal(urlPortal(p.tribunal, p.numero, "1g"))}
                     >
-                      <ExternalLink className="h-3.5 w-3.5 mr-1.5" /> PJe 1º grau
+                      <ExternalLink className="h-3.5 w-3.5 mr-1.5" /> {label} 1º grau
                     </Button>
                     <Button
                       variant="outline"
@@ -999,7 +1000,7 @@ function LinhaProcesso({
                       data-testid={`button-portal-2g-${p.id}`}
                       onClick={() => abrirPortal(urlPortal(p.tribunal, p.numero, "2g"))}
                     >
-                      <ExternalLink className="h-3.5 w-3.5 mr-1.5" /> PJe 2º grau
+                      <ExternalLink className="h-3.5 w-3.5 mr-1.5" /> {label} 2º grau
                     </Button>
                   </>
                 );

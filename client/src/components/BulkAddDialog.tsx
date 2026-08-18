@@ -30,13 +30,13 @@ interface Props {
 interface ParsedLine {
   raw: string;
   numero: string;
-  tribunal: "TJRJ" | "TRF2" | "TRT1" | "TJSP" | null;
+  tribunal: "TJRJ" | "TRF2" | "TRT1" | "TJSP" | "TJRS" | null;
   apelido: string | null;
   valido: boolean;
   motivo?: string;
 }
 
-function parseLinhas(texto: string, tribunalPadrao: "TJRJ" | "TRF2" | "TRT1" | "TJSP" | ""): ParsedLine[] {
+function parseLinhas(texto: string, tribunalPadrao: "TJRJ" | "TRF2" | "TRT1" | "TJSP" | "TJRS" | ""): ParsedLine[] {
   const linhas = texto
     .split(/\r?\n/)
     .map((l) => l.trim())
@@ -47,13 +47,13 @@ function parseLinhas(texto: string, tribunalPadrao: "TJRJ" | "TRF2" | "TRT1" | "
     const partes = raw.split(/[|\t;,]/).map((p) => p.trim());
     const numeroRaw = partes[0];
     const numero = normalizarNumero(numeroRaw);
-    let tribunal: "TJRJ" | "TRF2" | "TRT1" | "TJSP" | null = null;
+    let tribunal: "TJRJ" | "TRF2" | "TRT1" | "TJSP" | "TJRS" | null = null;
     let apelido: string | null = null;
 
     // Parte 2 pode ser tribunal
     if (partes[1]) {
       const up = partes[1].toUpperCase();
-      if (up === "TJRJ" || up === "TRF2" || up === "TRT1" || up === "TJSP") tribunal = up;
+      if (up === "TJRJ" || up === "TRF2" || up === "TRT1" || up === "TJSP" || up === "TJRS") tribunal = up;
       else apelido = partes[1];
     }
     // Parte 3 = apelido
@@ -80,7 +80,7 @@ function parseLinhas(texto: string, tribunalPadrao: "TJRJ" | "TRF2" | "TRT1" | "
 export function BulkAddDialog({ open, onOpenChange }: Props) {
   const { toast } = useToast();
   const [texto, setTexto] = useState("");
-  const [tribunalPadrao, setTribunalPadrao] = useState<"TJRJ" | "TRF2" | "TRT1" | "TJSP" | "">("");
+  const [tribunalPadrao, setTribunalPadrao] = useState<"TJRJ" | "TRF2" | "TRT1" | "TJSP" | "TJRS" | "">("");
   const [saving, setSaving] = useState(false);
 
   const parsed = useMemo(
@@ -156,6 +156,7 @@ export function BulkAddDialog({ open, onOpenChange }: Props) {
                 <SelectItem value="TRF2">TRF2</SelectItem>
                 <SelectItem value="TRT1">TRT1</SelectItem>
                 <SelectItem value="TJSP">TJSP</SelectItem>
+                <SelectItem value="TJRS">TJRS</SelectItem>
               </SelectContent>
             </Select>
           </div>

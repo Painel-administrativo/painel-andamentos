@@ -14,7 +14,7 @@ export function formatarCNJ(numero: string): string {
 // Infere tribunal pelo segmento J.TR
 // J = segmento do Poder Judiciário (5 = Justiça do Trabalho, 8 = Estadual, 4 = Federal)
 // TR = tribunal dentro do segmento
-export type Tribunal = "TJRJ" | "TRF2" | "TRT1" | "TJSP";
+export type Tribunal = "TJRJ" | "TRF2" | "TRT1" | "TJSP" | "TJRS";
 
 export function inferirTribunal(numero: string): Tribunal | null {
   const d = normalizarNumero(numero);
@@ -23,6 +23,7 @@ export function inferirTribunal(numero: string): Tribunal | null {
   const tr = d.substring(14, 16);
   if (j === "8" && tr === "19") return "TJRJ";
   if (j === "8" && tr === "26") return "TJSP";
+  if (j === "8" && tr === "21") return "TJRS";
   if (j === "4" && tr === "02") return "TRF2";
   if (j === "5" && tr === "01") return "TRT1";
   return null;
@@ -98,6 +99,14 @@ export function urlPortal(tribunal: string, numero: string, grau?: "1g" | "2g"):
     // certificado), acesso completo aos autos. Não aceita deep-link com o
     // número — o painel copia o CNJ pro clipboard antes de abrir.
     return "https://esaj.tjsp.jus.br/esaj/portal.do?servico=190001";
+  }
+  if (tribunal === "TJRS") {
+    // e-Proc TJRS: acesso logado (senha ou certificado). Uma vez logado, acesso
+    // completo aos autos. Não aceita deep-link — o painel copia o CNJ pro
+    // clipboard antes de abrir.
+    return grau === "2g"
+      ? "https://eproc2g.tjrs.jus.br/eproc/"
+      : "https://eproc1g.tjrs.jus.br/eproc/";
   }
   // TJRJ: Portal de Serviços (login com token/certificado). Uma vez logado,
   // acesso completo aos autos, inclusive segredo de justiça. Também não
