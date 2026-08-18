@@ -1,7 +1,7 @@
 import { z } from "zod";
 
 // Tribunais suportados (por enquanto)
-export const TRIBUNAIS = ["TJRJ", "TRF2"] as const;
+export const TRIBUNAIS = ["TJRJ", "TRF2", "TRT1", "TJSP", "TJRS"] as const;
 export type Tribunal = (typeof TRIBUNAIS)[number];
 
 // Antes o Drizzle+SQLite gerava esses tipos automaticamente.

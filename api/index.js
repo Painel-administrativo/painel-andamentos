@@ -33492,7 +33492,7 @@ var coerce = {
 var NEVER = INVALID;
 
 // shared/schema.ts
-var TRIBUNAIS = ["TJRJ", "TRF2"];
+var TRIBUNAIS = ["TJRJ", "TRF2", "TRT1", "TJSP", "TJRS"];
 var insertProcessoInputSchema = external_exports.object({
   numero: external_exports.string().min(1, "N\xFAmero obrigat\xF3rio"),
   tribunal: external_exports.enum(TRIBUNAIS),
