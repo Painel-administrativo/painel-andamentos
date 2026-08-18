@@ -33505,7 +33505,10 @@ var DATAJUD_APIKEY = "APIKey cDZHYzlZa0JadVREZDJCendQbXY6SkJlTzNjLV9TRENyQk1RdnF
 function endpointFor(tribunal) {
   const map = {
     TJRJ: "api_publica_tjrj",
-    TRF2: "api_publica_trf2"
+    TRF2: "api_publica_trf2",
+    TRT1: "api_publica_trt1",
+    TJSP: "api_publica_tjsp",
+    TJRS: "api_publica_tjrs"
   };
   const idx = map[tribunal];
   if (!idx) return null;
