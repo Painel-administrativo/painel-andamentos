@@ -980,9 +980,9 @@ function LinhaProcesso({
                 window.open(url, "_blank", "noopener,noreferrer");
               };
 
-              // TRT1 e TJRS: dois botões (1º e 2º grau) porque esses portais têm
+              // TRT1, TJRS e TJSP: dois botões (1º e 2º grau) porque esses portais têm
               // endereços distintos por instância. Os demais mantêm botão único.
-              if (p.tribunal === "TRT1" || p.tribunal === "TJRS") {
+              if (p.tribunal === "TRT1" || p.tribunal === "TJRS" || p.tribunal === "TJSP") {
                 const label = p.tribunal === "TRT1" ? "PJe" : "e-Proc";
                 return (
                   <>

@@ -95,10 +95,12 @@ export function urlPortal(tribunal: string, numero: string, grau?: "1g" | "2g"):
       : "https://pje.trt1.jus.br/primeirograu/login.seam";
   }
   if (tribunal === "TJSP") {
-    // e-SAJ TJSP: portal do advogado com login. Uma vez logado (senha ou
-    // certificado), acesso completo aos autos. Não aceita deep-link com o
-    // número — o painel copia o CNJ pro clipboard antes de abrir.
-    return "https://esaj.tjsp.jus.br/esaj/portal.do?servico=190001";
+    // e-Proc TJSP: acesso logado (senha ou certificado). Uma vez logado, acesso
+    // completo aos autos. Não aceita deep-link — o painel copia o CNJ pro
+    // clipboard antes de abrir.
+    return grau === "2g"
+      ? "https://eproc2g.tjsp.jus.br/eproc/"
+      : "https://eproc1g.tjsp.jus.br/eproc/";
   }
   if (tribunal === "TJRS") {
     // e-Proc TJRS: acesso logado (senha ou certificado). Uma vez logado, acesso
