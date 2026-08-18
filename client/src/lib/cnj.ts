@@ -14,7 +14,7 @@ export function formatarCNJ(numero: string): string {
 // Infere tribunal pelo segmento J.TR
 // J = segmento do Poder Judiciário (5 = Justiça do Trabalho, 8 = Estadual, 4 = Federal)
 // TR = tribunal dentro do segmento
-export type Tribunal = "TJRJ" | "TRF2" | "TRT1";
+export type Tribunal = "TJRJ" | "TRF2" | "TRT1" | "TJSP";
 
 export function inferirTribunal(numero: string): Tribunal | null {
   const d = normalizarNumero(numero);
@@ -22,6 +22,7 @@ export function inferirTribunal(numero: string): Tribunal | null {
   const j = d.substring(13, 14);
   const tr = d.substring(14, 16);
   if (j === "8" && tr === "19") return "TJRJ";
+  if (j === "8" && tr === "26") return "TJSP";
   if (j === "4" && tr === "02") return "TRF2";
   if (j === "5" && tr === "01") return "TRT1";
   return null;
@@ -91,6 +92,12 @@ export function urlPortal(tribunal: string, numero: string, grau?: "1g" | "2g"):
     return grau === "2g"
       ? "https://pje.trt1.jus.br/segundograu/login.seam"
       : "https://pje.trt1.jus.br/primeirograu/login.seam";
+  }
+  if (tribunal === "TJSP") {
+    // e-SAJ TJSP: portal do advogado com login. Uma vez logado (senha ou
+    // certificado), acesso completo aos autos. Não aceita deep-link com o
+    // número — o painel copia o CNJ pro clipboard antes de abrir.
+    return "https://esaj.tjsp.jus.br/esaj/portal.do?servico=190001";
   }
   // TJRJ: Portal de Serviços (login com token/certificado). Uma vez logado,
   // acesso completo aos autos, inclusive segredo de justiça. Também não

@@ -63,7 +63,7 @@ export default function Home() {
 
   const [aba, setAba] = useState<"painel" | "processos" | "publicacoes">("painel");
   const [busca, setBusca] = useState("");
-  const [filtroTribunal, setFiltroTribunal] = useState<"Todos" | "TJRJ" | "TRF2" | "TRT1">("Todos");
+  const [filtroTribunal, setFiltroTribunal] = useState<"Todos" | "TJRJ" | "TRF2" | "TRT1" | "TJSP">("Todos");
   const [soRecentes, setSoRecentes] = useState(false);
   const [soNaoLidos, setSoNaoLidos] = useState(false);
 
@@ -408,7 +408,7 @@ export default function Home() {
             <div className="leading-tight">
               <h1 className="text-sm font-semibold text-foreground">Painel de Andamentos</h1>
               <p className="text-xs text-muted-foreground hidden sm:block">
-                Acompanhamento processual · TJRJ, TRF2 e TRT1
+                Acompanhamento processual · TJRJ, TRF2, TRT1 e TJSP
               </p>
             </div>
           </div>
@@ -542,7 +542,7 @@ export default function Home() {
                 />
               </div>
               <div className="flex items-center gap-1 rounded-md border border-border p-0.5">
-                {(["Todos", "TJRJ", "TRF2", "TRT1"] as const).map((t) => (
+                {(["Todos", "TJRJ", "TRF2", "TRT1", "TJSP"] as const).map((t) => (
                   <button
                     key={t}
                     onClick={() => setFiltroTribunal(t)}
