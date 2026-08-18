@@ -12,6 +12,9 @@ function endpointFor(tribunal: string): string | null {
   const map: Record<string, string> = {
     TJRJ: "api_publica_tjrj",
     TRF2: "api_publica_trf2",
+    TRT1: "api_publica_trt1",
+    TJSP: "api_publica_tjsp",
+    TJRS: "api_publica_tjrs",
   };
   const idx = map[tribunal];
   if (!idx) return null;
