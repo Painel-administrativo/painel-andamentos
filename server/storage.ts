@@ -98,6 +98,7 @@ interface PublicacaoRow {
   criado_em: string;
   lido_em: string | null;
   informado_em: string | null;
+  anotacao: string | null;
 }
 
 interface PublicacaoComProcessoRow extends PublicacaoRow {
@@ -121,6 +122,7 @@ function mapPublicacao(r: PublicacaoRow): Publicacao {
     criadoEm: r.criado_em,
     lidoEm: r.lido_em,
     informadoEm: r.informado_em,
+    anotacao: r.anotacao,
   };
 }
 
@@ -185,6 +187,7 @@ export interface IStorage {
   marcarPublicacaoLida(id: number): Promise<boolean>;
   marcarTodasLidas(): Promise<number>;
   alternarPublicacaoInformada(id: number): Promise<{ informadoEm: string | null } | null>;
+  atualizarAnotacao(id: number, anotacao: string | null): Promise<{ anotacao: string | null } | null>;
 }
 
 // ============================================================
@@ -367,7 +370,7 @@ export class PgStorage implements IStorage {
     const { rows } = await pool.query<PublicacaoRow>(
       `SELECT id, processo_id, hash, data_disponibilizacao,
               tipo_comunicacao, tipo_documento, nome_orgao, nome_classe,
-              texto, link, numero_comunicacao, criado_em, lido_em, informado_em
+              texto, link, numero_comunicacao, criado_em, lido_em, informado_em, anotacao
        FROM publicacoes
        WHERE processo_id = $1
        ORDER BY data_disponibilizacao DESC, id DESC`,
@@ -380,7 +383,7 @@ export class PgStorage implements IStorage {
     const { rows } = await pool.query<PublicacaoRow>(
       `SELECT id, processo_id, hash, data_disponibilizacao,
               tipo_comunicacao, tipo_documento, nome_orgao, nome_classe,
-              texto, link, numero_comunicacao, criado_em, lido_em, informado_em
+              texto, link, numero_comunicacao, criado_em, lido_em, informado_em, anotacao
        FROM publicacoes
        WHERE criado_em >= $1
        ORDER BY criado_em DESC, id DESC`,
@@ -415,7 +418,7 @@ export class PgStorage implements IStorage {
     const { rows } = await pool.query<PublicacaoComProcessoRow>(
       `SELECT pub.id, pub.processo_id, pub.hash, pub.data_disponibilizacao,
               pub.tipo_comunicacao, pub.tipo_documento, pub.nome_orgao, pub.nome_classe,
-              pub.texto, pub.link, pub.numero_comunicacao, pub.criado_em, pub.lido_em, pub.informado_em,
+              pub.texto, pub.link, pub.numero_comunicacao, pub.criado_em, pub.lido_em, pub.informado_em, pub.anotacao,
               pr.apelido AS processo_apelido, pr.numero AS processo_numero
        FROM publicacoes pub
        JOIN processos pr ON pr.id = pub.processo_id
@@ -463,6 +466,21 @@ export class PgStorage implements IStorage {
     );
     if (rows.length === 0) return null;
     return { informadoEm: rows[0].informado_em };
+  }
+
+  // Atualiza a anotação livre da publicação.
+  // Passe string vazia ou null para limpar. Retorna null se o ID não existir.
+  async atualizarAnotacao(
+    id: number,
+    anotacao: string | null
+  ): Promise<{ anotacao: string | null } | null> {
+    const valor = anotacao && anotacao.trim().length > 0 ? anotacao : null;
+    const { rows } = await pool.query<{ anotacao: string | null }>(
+      `UPDATE publicacoes SET anotacao = $2 WHERE id = $1 RETURNING anotacao`,
+      [id, valor]
+    );
+    if (rows.length === 0) return null;
+    return { anotacao: rows[0].anotacao };
   }
 
   async upsertSnapshot(

@@ -827,5 +827,25 @@ export async function registerRoutes(
     }
   });
 
+  // Atualiza a anotação livre da publicação.
+  // Body: { anotacao: string | null }. String vazia limpa.
+  app.patch("/api/publicacoes/:id/anotacao", async (req, res) => {
+    try {
+      const id = parseInt(req.params.id, 10);
+      if (!id || Number.isNaN(id)) {
+        return res.status(400).json({ erro: "ID inválido" });
+      }
+      const anotacao = typeof req.body?.anotacao === "string" ? req.body.anotacao : null;
+      const resultado = await storage.atualizarAnotacao(id, anotacao);
+      if (resultado === null) {
+        return res.status(404).json({ erro: "Publicação não encontrada" });
+      }
+      res.json(resultado);
+    } catch (e: any) {
+      console.error("publicacoes/anotacao erro:", e);
+      res.status(500).json({ erro: e?.message || String(e) });
+    }
+  });
+
   return httpServer;
 }

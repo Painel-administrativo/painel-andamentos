@@ -29169,7 +29169,8 @@ function mapPublicacao(r) {
     numeroComunicacao: r.numero_comunicacao,
     criadoEm: r.criado_em,
     lidoEm: r.lido_em,
-    informadoEm: r.informado_em
+    informadoEm: r.informado_em,
+    anotacao: r.anotacao
   };
 }
 function mapPublicacaoComProcesso(r) {
@@ -29347,7 +29348,7 @@ var PgStorage = class {
     const { rows } = await pool.query(
       `SELECT id, processo_id, hash, data_disponibilizacao,
               tipo_comunicacao, tipo_documento, nome_orgao, nome_classe,
-              texto, link, numero_comunicacao, criado_em, lido_em, informado_em
+              texto, link, numero_comunicacao, criado_em, lido_em, informado_em, anotacao
        FROM publicacoes
        WHERE processo_id = $1
        ORDER BY data_disponibilizacao DESC, id DESC`,
@@ -29359,7 +29360,7 @@ var PgStorage = class {
     const { rows } = await pool.query(
       `SELECT id, processo_id, hash, data_disponibilizacao,
               tipo_comunicacao, tipo_documento, nome_orgao, nome_classe,
-              texto, link, numero_comunicacao, criado_em, lido_em, informado_em
+              texto, link, numero_comunicacao, criado_em, lido_em, informado_em, anotacao
        FROM publicacoes
        WHERE criado_em >= $1
        ORDER BY criado_em DESC, id DESC`,
@@ -29385,7 +29386,7 @@ var PgStorage = class {
     const { rows } = await pool.query(
       `SELECT pub.id, pub.processo_id, pub.hash, pub.data_disponibilizacao,
               pub.tipo_comunicacao, pub.tipo_documento, pub.nome_orgao, pub.nome_classe,
-              pub.texto, pub.link, pub.numero_comunicacao, pub.criado_em, pub.lido_em, pub.informado_em,
+              pub.texto, pub.link, pub.numero_comunicacao, pub.criado_em, pub.lido_em, pub.informado_em, pub.anotacao,
               pr.apelido AS processo_apelido, pr.numero AS processo_numero
        FROM publicacoes pub
        JOIN processos pr ON pr.id = pub.processo_id
@@ -29427,6 +29428,17 @@ var PgStorage = class {
     );
     if (rows.length === 0) return null;
     return { informadoEm: rows[0].informado_em };
+  }
+  // Atualiza a anotação livre da publicação.
+  // Passe string vazia ou null para limpar. Retorna null se o ID não existir.
+  async atualizarAnotacao(id, anotacao) {
+    const valor = anotacao && anotacao.trim().length > 0 ? anotacao : null;
+    const { rows } = await pool.query(
+      `UPDATE publicacoes SET anotacao = $2 WHERE id = $1 RETURNING anotacao`,
+      [id, valor]
+    );
+    if (rows.length === 0) return null;
+    return { anotacao: rows[0].anotacao };
   }
   async upsertSnapshot(processoId, data) {
     const { rows } = await pool.query(
@@ -34129,6 +34141,23 @@ async function registerRoutes(httpServer, app2) {
       res.json(resultado);
     } catch (e) {
       console.error("publicacoes/alternar-informada erro:", e);
+      res.status(500).json({ erro: e?.message || String(e) });
+    }
+  });
+  app2.patch("/api/publicacoes/:id/anotacao", async (req, res) => {
+    try {
+      const id = parseInt(req.params.id, 10);
+      if (!id || Number.isNaN(id)) {
+        return res.status(400).json({ erro: "ID inv\xE1lido" });
+      }
+      const anotacao = typeof req.body?.anotacao === "string" ? req.body.anotacao : null;
+      const resultado = await storage.atualizarAnotacao(id, anotacao);
+      if (resultado === null) {
+        return res.status(404).json({ erro: "Publica\xE7\xE3o n\xE3o encontrada" });
+      }
+      res.json(resultado);
+    } catch (e) {
+      console.error("publicacoes/anotacao erro:", e);
       res.status(500).json({ erro: e?.message || String(e) });
     }
   });

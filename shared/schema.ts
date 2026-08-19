@@ -96,6 +96,7 @@ export interface Publicacao {
   criadoEm: string; // ISO 8601
   lidoEm: string | null; // ISO 8601, NULL quando ainda não foi lida
   informadoEm: string | null; // ISO 8601, NULL quando ainda não foi informada ao cliente
+  anotacao: string | null; // Anotação livre do usuário sobre a publicação
 }
 
 // Publicação com dados do processo (para exibir no card global)

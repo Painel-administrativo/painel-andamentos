@@ -20,6 +20,100 @@ import type { PublicacaoComProcesso } from "@shared/schema";
 
 type Filtro = "todas" | "nao_lidas";
 
+// ============================================================
+// Bloco de anotação (textarea persistente + botão copiar)
+// ============================================================
+interface AnotacaoBlocoProps {
+  pub: PublicacaoComProcesso;
+  onSalvar: (id: number, anotacao: string) => void;
+  onToast: (t: { title: string; description?: string; variant?: "destructive" }) => void;
+}
+
+function AnotacaoBloco({ pub, onSalvar, onToast }: AnotacaoBlocoProps) {
+  const [valor, setValor] = useState(pub.anotacao ?? "");
+  const [salvando, setSalvando] = useState<"idle" | "pendente" | "salvo">("idle");
+  const timerRef = useRef<number | null>(null);
+
+  // Se a publicação mudar (por ex. refetch da lista), sincroniza.
+  useEffect(() => {
+    setValor(pub.anotacao ?? "");
+    setSalvando("idle");
+  }, [pub.id, pub.anotacao]);
+
+  // Salva com debounce de 800ms após parar de digitar
+  const handleChange = (novo: string) => {
+    setValor(novo);
+    setSalvando("pendente");
+    if (timerRef.current) window.clearTimeout(timerRef.current);
+    timerRef.current = window.setTimeout(() => {
+      onSalvar(pub.id, novo);
+      setSalvando("salvo");
+      window.setTimeout(() => setSalvando("idle"), 1500);
+    }, 800);
+  };
+
+  const copiarComContexto = async (e: React.MouseEvent) => {
+    e.stopPropagation();
+    // Se houver debounce pendente, salva agora antes de copiar
+    if (timerRef.current) {
+      window.clearTimeout(timerRef.current);
+      onSalvar(pub.id, valor);
+      setSalvando("salvo");
+      window.setTimeout(() => setSalvando("idle"), 1500);
+    }
+    const apelido = pub.processoApelido || formatarCNJ(pub.processoNumero);
+    const tipoDoc = pub.tipoDocumento || "Publicação";
+    const data = formatarDataPub(pub.dataDisponibilizacao);
+    const anot = (valor || "").trim();
+    const bloco = anot
+      ? `Processo ${apelido} — ${tipoDoc} · ${data}:\n${anot}`
+      : `Processo ${apelido} — ${tipoDoc} · ${data}`;
+    try {
+      await navigator.clipboard.writeText(bloco);
+      onToast({ title: "Copiado", description: "Pronto pra colar no WhatsApp" });
+    } catch {
+      onToast({ title: "Não consegui copiar", variant: "destructive" });
+    }
+  };
+
+  return (
+    <div className="space-y-1.5" data-testid={`bloco-anotacao-${pub.id}`}>
+      <div className="flex items-center justify-between gap-2">
+        <label
+          htmlFor={`anotacao-${pub.id}`}
+          className="text-xs font-medium text-muted-foreground"
+        >
+          Minha anotação
+        </label>
+        <div className="flex items-center gap-2">
+          <span className="text-[10px] text-muted-foreground min-w-[54px] text-right">
+            {salvando === "pendente" ? "salvando…" : salvando === "salvo" ? "salvo" : ""}
+          </span>
+          <Button
+            size="sm"
+            variant="outline"
+            className="h-7 text-xs"
+            onClick={copiarComContexto}
+            data-testid={`button-copiar-anotacao-${pub.id}`}
+            title="Copia um bloco pronto: Processo [Apelido] — [tipo doc · data]: [sua anotação]"
+          >
+            <Copy className="h-3 w-3 mr-1.5" /> Copiar pro WhatsApp
+          </Button>
+        </div>
+      </div>
+      <textarea
+        id={`anotacao-${pub.id}`}
+        value={valor}
+        onChange={(e) => handleChange(e.target.value)}
+        onClick={(e) => e.stopPropagation()}
+        placeholder="Anote aqui sua compreensão da publicação — salva sozinho e você pode copiar pra mandar pro cliente/advogado."
+        className="w-full min-h-[64px] resize-y rounded-md border border-border bg-background px-2.5 py-1.5 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-primary"
+        data-testid={`textarea-anotacao-${pub.id}`}
+      />
+    </div>
+  );
+}
+
 interface RespListagem {
   items: PublicacaoComProcesso[];
   proximoCursor: string | null;
@@ -226,6 +320,20 @@ export function CardPublicacoes() {
           };
         }
       );
+    },
+  });
+
+  // -------- Salvar anotação --------
+  // Otimista local: atualizamos a cache imediatamente ao digitar; o servidor
+  // é chamado com debounce (via useDebouncedCallback logo abaixo).
+  const salvarAnotacaoMut = useMutation({
+    mutationFn: async ({ id, anotacao }: { id: number; anotacao: string }) => {
+      const resp = await apiRequest(
+        "PATCH",
+        `/api/publicacoes/${id}/anotacao`,
+        { anotacao }
+      );
+      return resp.json() as Promise<{ anotacao: string | null }>;
     },
   });
 
@@ -468,6 +576,29 @@ export function CardPublicacoes() {
                         </div>
                       );
                     })()}
+                    <AnotacaoBloco
+                      pub={pub}
+                      onSalvar={(id, anotacao) => {
+                        // Otimista: atualiza cache local
+                        queryClient.setQueriesData<{ pages: RespListagem[] }>(
+                          { queryKey: ["/api/publicacoes"] },
+                          (old) => {
+                            if (!old) return old;
+                            return {
+                              ...old,
+                              pages: old.pages.map((page) => ({
+                                ...page,
+                                items: page.items.map((p) =>
+                                  p.id === id ? { ...p, anotacao: anotacao || null } : p
+                                ),
+                              })),
+                            };
+                          }
+                        );
+                        salvarAnotacaoMut.mutate({ id, anotacao });
+                      }}
+                      onToast={(t) => toast(t)}
+                    />
                     <div className="text-sm text-foreground/90 whitespace-pre-wrap leading-relaxed">
                       {limparTexto(pub.texto) || <em className="text-muted-foreground">Sem texto disponível.</em>}
                     </div>
@@ -529,8 +660,8 @@ export function CardPublicacoes() {
                           window.open(url, "_blank", "noopener,noreferrer");
                         };
 
-                        // TRT1 e TJRS: dois botões (1º e 2º grau)
-                        if (tribunalDetectado === "TRT1" || tribunalDetectado === "TJRS") {
+                        // TRT1, TJRS e TJSP: dois botões (1º e 2º grau)
+                        if (tribunalDetectado === "TRT1" || tribunalDetectado === "TJRS" || tribunalDetectado === "TJSP") {
                           const label = tribunalDetectado === "TRT1" ? "PJe" : "e-Proc";
                           return (
                             <>
