@@ -61,13 +61,31 @@ function AnotacaoBloco({ pub, onSalvar, onToast }: AnotacaoBlocoProps) {
       setSalvando("salvo");
       window.setTimeout(() => setSalvando("idle"), 1500);
     }
-    const apelido = pub.processoApelido || formatarCNJ(pub.processoNumero);
+    const apelido = pub.processoApelido;
+    const cnj = formatarCNJ(pub.processoNumero);
     const tipoDoc = pub.tipoDocumento || "Publicação";
-    const data = formatarDataPub(pub.dataDisponibilizacao);
+    const dataDisp = formatarDataPub(pub.dataDisponibilizacao);
+    const datasPrazo = calcularDatasPrazo(pub.dataDisponibilizacao);
+    const orgao = pub.nomeOrgao?.trim();
+    const texto = limparTexto(pub.texto);
     const anot = (valor || "").trim();
-    const bloco = anot
-      ? `Processo ${apelido} — ${tipoDoc} · ${data}:\n${anot}`
-      : `Processo ${apelido} — ${tipoDoc} · ${data}`;
+
+    // Cabeçalho corrido: [Apelido · ]CNJ — tipoDoc · Disp DD/MM[ · Publicado DD/MM · Prazo começa DD/MM][ · Órgão]
+    const partes: string[] = [];
+    if (apelido) partes.push(`${apelido} · ${cnj}`);
+    else partes.push(cnj);
+    partes.push(`${tipoDoc} · Disp. ${dataDisp}`);
+    if (datasPrazo) {
+      partes.push(`Publicado ${datasPrazo.publicacao} · Prazo começa ${datasPrazo.inicio}`);
+    }
+    if (orgao) partes.push(orgao);
+    const cabecalho = partes.join(" — ");
+
+    // Monta corpo: cabeçalho → (linha em branco → texto)? → (linha em branco → anotação)?
+    const linhas: string[] = [cabecalho];
+    if (texto) linhas.push("", texto);
+    if (anot) linhas.push("", `Anotação: ${anot}`);
+    const bloco = linhas.join("\n");
     try {
       await navigator.clipboard.writeText(bloco);
       onToast({ title: "Copiado", description: "Pronto pra colar no WhatsApp" });
