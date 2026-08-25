@@ -328,22 +328,27 @@ export default function Home() {
     [enriquecidos],
   );
 
+  // Remove acentos e caixa para busca. Ex.: 'Teresópolis' e 'TERESOPOLIS'
+  // viram ambos 'teresopolis', então a busca acha os dois casos.
+  const normalizar = (s: string) =>
+    s.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
+
   const filtrados = useMemo(() => {
-    const q = busca.trim().toLowerCase();
+    const q = normalizar(busca.trim());
     return enriquecidos.filter((p) => {
       if (filtroTribunal !== "Todos" && p.tribunal !== filtroTribunal) return false;
       if (soRecentes && !p._recente) return false;
       if (soNaoLidos && !p._naoLido) return false;
       if (q) {
-        const alvo = [
-          p.apelido ?? "",
-          p.numero,
-          formatarCNJ(p.numero),
-          p._classe ?? "",
-          p._orgao ?? "",
-        ]
-          .join(" ")
-          .toLowerCase();
+        const alvo = normalizar(
+          [
+            p.apelido ?? "",
+            p.numero,
+            formatarCNJ(p.numero),
+            p._classe ?? "",
+            p._orgao ?? "",
+          ].join(" ")
+        );
         if (!alvo.includes(q)) return false;
       }
       return true;
