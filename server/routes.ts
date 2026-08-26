@@ -851,6 +851,40 @@ export async function registerRoutes(
   // Fase 3 — LLM para gerar cabeçalho de petição
   // ============================================================
 
+  // Entidades HTML nomeadas que aparecem em publicações (case-sensitive: &Ecirc; ≠ &ecirc;)
+  const ENTIDADES_HTML: Record<string, string> = {
+    nbsp: " ", amp: "&", lt: "<", gt: ">", quot: '"', apos: "'",
+    aacute: "á", eacute: "é", iacute: "í", oacute: "ó", uacute: "ú", yacute: "ý",
+    Aacute: "Á", Eacute: "É", Iacute: "Í", Oacute: "Ó", Uacute: "Ú", Yacute: "Ý",
+    atilde: "ã", otilde: "õ", ntilde: "ñ",
+    Atilde: "Ã", Otilde: "Õ", Ntilde: "Ñ",
+    acirc: "â", ecirc: "ê", icirc: "î", ocirc: "ô", ucirc: "û",
+    Acirc: "Â", Ecirc: "Ê", Icirc: "Î", Ocirc: "Ô", Ucirc: "Û",
+    agrave: "à", egrave: "è", igrave: "ì", ograve: "ò", ugrave: "ù",
+    Agrave: "À", Egrave: "È", Igrave: "Ì", Ograve: "Ò", Ugrave: "Ù",
+    auml: "ä", euml: "ë", iuml: "ï", ouml: "ö", uuml: "ü",
+    Auml: "Ä", Euml: "Ë", Iuml: "Ï", Ouml: "Ö", Uuml: "Ü",
+    ccedil: "ç", Ccedil: "Ç", oslash: "ø", Oslash: "Ø",
+    aring: "å", Aring: "Å", aelig: "æ", AElig: "Æ",
+    szlig: "ß", ordm: "º", ordf: "ª",
+    hellip: "…", mdash: "—", ndash: "–", laquo: "«", raquo: "»",
+    lsquo: "‘", rsquo: "’", ldquo: "“", rdquo: "”",
+    para: "¶", sect: "§", copy: "©", reg: "®", trade: "™",
+    deg: "°", middot: "·", bull: "•", times: "×", divide: "÷",
+    euro: "€", pound: "£", yen: "¥", cent: "¢",
+  };
+
+  function decodificarEntidadesHtml(s: string): string {
+    return s
+      .replace(/&#(\d+);/g, (_, n) => String.fromCharCode(parseInt(n, 10)))
+      .replace(/&#x([0-9a-f]+);/gi, (_, h) => String.fromCharCode(parseInt(h, 16)))
+      .replace(/&([A-Za-z]+);/g, (raw, nome: string) => {
+        return Object.prototype.hasOwnProperty.call(ENTIDADES_HTML, nome)
+          ? ENTIDADES_HTML[nome]
+          : raw;
+      });
+  }
+
   async function chamarOpenAI(prompt: string, jsonMode = false): Promise<string> {
     const url = process.env.CUSTOM_CRED_API_OPENAI_COM_URL || "https://api.openai.com";
     const token = process.env.CUSTOM_CRED_API_OPENAI_COM_TOKEN;
@@ -896,16 +930,10 @@ export async function registerRoutes(
       if (!pub) {
         return res.status(404).json({ erro: "Publicação não encontrada" });
       }
-      // Remove HTML antes de mandar pro LLM — alguns tribunais entregam <br>, <p>, &nbsp; no texto
-      const textoLimpo = (pub.texto || "")
-        .replace(/<[^>]+>/g, " ")
-        .replace(/&nbsp;/gi, " ")
-        .replace(/&amp;/gi, "&")
-        .replace(/&lt;/gi, "<")
-        .replace(/&gt;/gi, ">")
-        .replace(/&quot;/gi, '"')
-        .replace(/&#39;/gi, "'")
-        .replace(/&#(\d+);/g, (_, n) => String.fromCharCode(parseInt(n, 10)))
+      // Remove HTML + entidades antes de mandar pro LLM (mesmo tratamento do frontend)
+      const textoLimpo = decodificarEntidadesHtml(
+        (pub.texto || "").replace(/<[^>]+>/g, " ")
+      )
         .replace(/\s+/g, " ")
         .trim();
       const texto = textoLimpo.slice(0, 6000);

@@ -34174,6 +34174,101 @@ async function registerRoutes(httpServer, app2) {
       res.status(500).json({ erro: e?.message || String(e) });
     }
   });
+  const ENTIDADES_HTML = {
+    nbsp: " ",
+    amp: "&",
+    lt: "<",
+    gt: ">",
+    quot: '"',
+    apos: "'",
+    aacute: "\xE1",
+    eacute: "\xE9",
+    iacute: "\xED",
+    oacute: "\xF3",
+    uacute: "\xFA",
+    yacute: "\xFD",
+    Aacute: "\xC1",
+    Eacute: "\xC9",
+    Iacute: "\xCD",
+    Oacute: "\xD3",
+    Uacute: "\xDA",
+    Yacute: "\xDD",
+    atilde: "\xE3",
+    otilde: "\xF5",
+    ntilde: "\xF1",
+    Atilde: "\xC3",
+    Otilde: "\xD5",
+    Ntilde: "\xD1",
+    acirc: "\xE2",
+    ecirc: "\xEA",
+    icirc: "\xEE",
+    ocirc: "\xF4",
+    ucirc: "\xFB",
+    Acirc: "\xC2",
+    Ecirc: "\xCA",
+    Icirc: "\xCE",
+    Ocirc: "\xD4",
+    Ucirc: "\xDB",
+    agrave: "\xE0",
+    egrave: "\xE8",
+    igrave: "\xEC",
+    ograve: "\xF2",
+    ugrave: "\xF9",
+    Agrave: "\xC0",
+    Egrave: "\xC8",
+    Igrave: "\xCC",
+    Ograve: "\xD2",
+    Ugrave: "\xD9",
+    auml: "\xE4",
+    euml: "\xEB",
+    iuml: "\xEF",
+    ouml: "\xF6",
+    uuml: "\xFC",
+    Auml: "\xC4",
+    Euml: "\xCB",
+    Iuml: "\xCF",
+    Ouml: "\xD6",
+    Uuml: "\xDC",
+    ccedil: "\xE7",
+    Ccedil: "\xC7",
+    oslash: "\xF8",
+    Oslash: "\xD8",
+    aring: "\xE5",
+    Aring: "\xC5",
+    aelig: "\xE6",
+    AElig: "\xC6",
+    szlig: "\xDF",
+    ordm: "\xBA",
+    ordf: "\xAA",
+    hellip: "\u2026",
+    mdash: "\u2014",
+    ndash: "\u2013",
+    laquo: "\xAB",
+    raquo: "\xBB",
+    lsquo: "\u2018",
+    rsquo: "\u2019",
+    ldquo: "\u201C",
+    rdquo: "\u201D",
+    para: "\xB6",
+    sect: "\xA7",
+    copy: "\xA9",
+    reg: "\xAE",
+    trade: "\u2122",
+    deg: "\xB0",
+    middot: "\xB7",
+    bull: "\u2022",
+    times: "\xD7",
+    divide: "\xF7",
+    euro: "\u20AC",
+    pound: "\xA3",
+    yen: "\xA5",
+    cent: "\xA2"
+  };
+  function decodificarEntidadesHtml(s) {
+    return s.replace(/&#(\d+);/g, (_, n) => String.fromCharCode(parseInt(n, 10))).replace(/&#x([0-9a-f]+);/gi, (_, h) => String.fromCharCode(parseInt(h, 16))).replace(/&([A-Za-z]+);/g, (raw, nome) => {
+      return Object.prototype.hasOwnProperty.call(ENTIDADES_HTML, nome) ? ENTIDADES_HTML[nome] : raw;
+    });
+  }
   async function chamarOpenAI(prompt, jsonMode = false) {
     const url = process.env.CUSTOM_CRED_API_OPENAI_COM_URL || "https://api.openai.com";
     const token = process.env.CUSTOM_CRED_API_OPENAI_COM_TOKEN;
@@ -34217,7 +34312,9 @@ async function registerRoutes(httpServer, app2) {
       if (!pub) {
         return res.status(404).json({ erro: "Publica\xE7\xE3o n\xE3o encontrada" });
       }
-      const textoLimpo = (pub.texto || "").replace(/<[^>]+>/g, " ").replace(/&nbsp;/gi, " ").replace(/&amp;/gi, "&").replace(/&lt;/gi, "<").replace(/&gt;/gi, ">").replace(/&quot;/gi, '"').replace(/&#39;/gi, "'").replace(/&#(\d+);/g, (_, n) => String.fromCharCode(parseInt(n, 10))).replace(/\s+/g, " ").trim();
+      const textoLimpo = decodificarEntidadesHtml(
+        (pub.texto || "").replace(/<[^>]+>/g, " ")
+      ).replace(/\s+/g, " ").trim();
       const texto = textoLimpo.slice(0, 6e3);
       if (!texto.trim()) {
         return res.json({ polos: [], observacao: "Publica\xE7\xE3o sem texto" });

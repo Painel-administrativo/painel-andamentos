@@ -430,41 +430,64 @@ function formatarDataPub(iso: string): string {
   return `${dia}/${mes}/${ano}`;
 }
 
+// Mapa case-sensitive de entidades HTML nomeadas que aparecem em textos de publicações.
+// A case IMPORTA: &Ecirc; = Ê, &ecirc; = ê.
+const ENTIDADES_HTML: Record<string, string> = {
+  nbsp: " ", amp: "&", lt: "<", gt: ">", quot: '"', apos: "'",
+  // Minúsculas com acento agudo
+  aacute: "á", eacute: "é", iacute: "í", oacute: "ó", uacute: "ú", yacute: "ý",
+  // Maiúsculas com acento agudo
+  Aacute: "Á", Eacute: "É", Iacute: "Í", Oacute: "Ó", Uacute: "Ú", Yacute: "Ý",
+  // Minúsculas com til
+  atilde: "ã", otilde: "õ", ntilde: "ñ",
+  // Maiúsculas com til
+  Atilde: "Ã", Otilde: "Õ", Ntilde: "Ñ",
+  // Minúsculas com circunflexo
+  acirc: "â", ecirc: "ê", icirc: "î", ocirc: "ô", ucirc: "û",
+  // Maiúsculas com circunflexo
+  Acirc: "Â", Ecirc: "Ê", Icirc: "Î", Ocirc: "Ô", Ucirc: "Û",
+  // Minúsculas com grave
+  agrave: "à", egrave: "è", igrave: "ì", ograve: "ò", ugrave: "ù",
+  // Maiúsculas com grave
+  Agrave: "À", Egrave: "È", Igrave: "Ì", Ograve: "Ò", Ugrave: "Ù",
+  // Trema
+  auml: "ä", euml: "ë", iuml: "ï", ouml: "ö", uuml: "ü",
+  Auml: "Ä", Euml: "Ë", Iuml: "Ï", Ouml: "Ö", Uuml: "Ü",
+  // Cedilha e outros comuns em português/latim
+  ccedil: "ç", Ccedil: "Ç", oslash: "ø", Oslash: "Ø",
+  aring: "å", Aring: "Å", aelig: "æ", AElig: "Æ",
+  szlig: "ß", ordm: "º", ordf: "ª",
+  // Pontuação e símbolos
+  hellip: "…", mdash: "—", ndash: "–", laquo: "«", raquo: "»",
+  lsquo: "‘", rsquo: "’", ldquo: "“", rdquo: "”", sbquo: "‚", bdquo: "„",
+  para: "¶", sect: "§", copy: "©", reg: "®", trade: "™",
+  deg: "°", middot: "·", bull: "•", times: "×", divide: "÷",
+  euro: "€", pound: "£", yen: "¥", cent: "¢",
+};
+
+function decodificarEntidades(s: string): string {
+  return s
+    // Entidades numéricas decimais: &#233;
+    .replace(/&#(\d+);/g, (_, n) => String.fromCharCode(parseInt(n, 10)))
+    // Entidades numéricas hexadecimais: &#xE9;
+    .replace(/&#x([0-9a-f]+);/gi, (_, h) => String.fromCharCode(parseInt(h, 16)))
+    // Entidades nomeadas (case-sensitive)
+    .replace(/&([A-Za-z]+);/g, (raw, nome: string) => {
+      return Object.prototype.hasOwnProperty.call(ENTIDADES_HTML, nome)
+        ? ENTIDADES_HTML[nome]
+        : raw; // preserva desconhecidas em vez de apagar
+    });
+}
+
 function limparTexto(t: string | null): string {
   if (!t) return "";
-  // Alguns tribunais entregam o texto da publicação em HTML (com <br>, <p>, &nbsp;, etc).
-  // Estratégia: <br> e </p> viram quebra de linha, o restante das tags cai fora,
-  // entidades comuns viram símbolos, e finalmente colapsamos espaços.
+  // Alguns tribunais entregam o texto da publicação em HTML (com <br>, <p>, &Ecirc;, etc).
   const semTags = t
     .replace(/<\s*br\s*\/?\s*>/gi, "\n")
     .replace(/<\s*\/\s*p\s*>/gi, "\n\n")
     .replace(/<\s*\/?\s*(div|li|tr|h[1-6])\s*[^>]*>/gi, "\n")
     .replace(/<[^>]+>/g, " ");
-  const semEntidades = semTags
-    .replace(/&nbsp;/gi, " ")
-    .replace(/&amp;/gi, "&")
-    .replace(/&lt;/gi, "<")
-    .replace(/&gt;/gi, ">")
-    .replace(/&quot;/gi, '"')
-    .replace(/&#39;/gi, "'")
-    .replace(/&aacute;/gi, "á")
-    .replace(/&eacute;/gi, "é")
-    .replace(/&iacute;/gi, "í")
-    .replace(/&oacute;/gi, "ó")
-    .replace(/&uacute;/gi, "ú")
-    .replace(/&atilde;/gi, "ã")
-    .replace(/&otilde;/gi, "õ")
-    .replace(/&ccedil;/gi, "ç")
-    .replace(/&Aacute;/g, "Á")
-    .replace(/&Eacute;/g, "É")
-    .replace(/&Iacute;/g, "Í")
-    .replace(/&Oacute;/g, "Ó")
-    .replace(/&Uacute;/g, "Ú")
-    .replace(/&Atilde;/g, "Ã")
-    .replace(/&Otilde;/g, "Õ")
-    .replace(/&Ccedil;/g, "Ç")
-    .replace(/&#(\d+);/g, (_, n) => String.fromCharCode(parseInt(n, 10)))
-    .replace(/&#x([0-9a-f]+);/gi, (_, h) => String.fromCharCode(parseInt(h, 16)));
+  const semEntidades = decodificarEntidades(semTags);
   // Colapsa espaços por linha, mas preserva quebras
   return semEntidades
     .split("\n")
