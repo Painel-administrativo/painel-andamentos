@@ -34280,23 +34280,37 @@ ${texto}`;
       const orgao = pub.nomeOrgao || "";
       const classe = pub.nomeClasse || "";
       const polosStr = Array.isArray(polos) && polos.length > 0 ? polos.map((p) => `${p.tipo}: ${p.nome}`).join("\n") : "(partes n\xE3o identificadas)";
-      const prompt = `Voc\xEA \xE9 um assistente jur\xEDdico brasileiro. Monte o CABE\xC7ALHO de uma peti\xE7\xE3o simples com base nas informa\xE7\xF5es abaixo.
+      const clienteUpper = clienteNome.toUpperCase();
+      const enderecamentoHint = /TRT|TRABALHO|LABOR/i.test(orgao) ? "JUIZ DO TRABALHO" : "JUIZ DE DIREITO";
+      const prompt = `Voc\xEA \xE9 um assistente jur\xEDdico brasileiro. Monte o CABE\xC7ALHO de uma peti\xE7\xE3o.
 
-RETORNE APENAS O TEXTO DO CABE\xC7ALHO, sem coment\xE1rios, sem markdown, sem aspas.
+RETORNE APENAS O TEXTO DO CABE\xC7ALHO, exatamente na estrutura mostrada no EXEMPLO. Sem markdown, sem aspas, sem coment\xE1rios, sem explica\xE7\xF5es.
 
-FORMATO EXATO:
-[LINHA 1: endere\xE7amento em CAIXA ALTA come\xE7ando com "EXCELENT\xCDSSIMO SENHOR DOUTOR JUIZ..." derivado do \xF3rg\xE3o abaixo. Se for TRT, use "...JUIZ DO TRABALHO...". Se n\xE3o der pra inferir do \xF3rg\xE3o, use "...JUIZ DE DIREITO...". Inclua UF.]
+ESTRUTURA OBRIGAT\xD3RIA (n\xE3o pule nenhuma linha):
+Linha 1: endere\xE7amento em CAIXA ALTA come\xE7ando por "EXCELENT\xCDSSIMO SENHOR DOUTOR ${enderecamentoHint}...", derivado do \xD3RG\xC3O informado abaixo, inclu\xEDndo UF.
+Linha em branco.
+"Processo n\xBA ${cnjFormatado}"
+"Classe: ${classe || "(n\xE3o informada)"}"
+Uma linha por polo listando tipo e nome (Autor(a):, R\xE9u(r\xE9):, Reclamante:, Reclamado:, etc). Se n\xE3o houver polos, PULE essas linhas.
+Linha em branco.
+"${clienteUpper}, j\xE1 qualificado(a) nos autos em ep\xEDgrafe, por seu(sua) advogado(a) que esta subscreve, vem, respeitosamente, \xE0 presen\xE7a de Vossa Excel\xEAncia, expor e requerer o que segue:"
 
-Processo n\xBA ${cnjFormatado}
-Classe: ${classe || "(n\xE3o informada)"}
-[Linhas com Autor(a)/R\xE9u(r\xE9)/Reclamante/etc conforme os polos abaixo]
+EXEMPLO (n\xE3o copie os nomes, s\xF3 a estrutura):
+EXCELENT\xCDSSIMO SENHOR DOUTOR JUIZ DE DIREITO DA 1\xAA VARA C\xCDVEL DE PETR\xD3POLIS - RJ
 
-[NOME DO CLIENTE EM CAIXA ALTA], j\xE1 qualificado(a) nos autos em epi\xEDgrafe, por seu(sua) advogado(a) que esta subscreve, vem, respeitosamente, \xE0 presen\xE7a de Vossa Excel\xEAncia, expor e requerer o que segue:
+Processo n\xBA 1234567-89.2024.8.19.0042
+Classe: Procedimento Comum C\xEDvel
+Autor(a): FULANO DE TAL
+R\xE9u(r\xE9): BELTRANO LTDA.
 
-DADOS:
+FULANO DE TAL, j\xE1 qualificado nos autos em ep\xEDgrafe, por seu advogado que esta subscreve, vem, respeitosamente, \xE0 presen\xE7a de Vossa Excel\xEAncia, expor e requerer o que segue:
+
+AGORA MONTE O CABE\xC7ALHO REAL COM ESTES DADOS:
 \xD3RG\xC3O: ${orgao}
-CLIENTE (subscritor representa): ${clienteNome}
-POLOS DO PROCESSO:
+N\xDAMERO CNJ: ${cnjFormatado}
+CLASSE: ${classe || "(n\xE3o informada)"}
+CLIENTE: ${clienteUpper}
+POLOS:
 ${polosStr}`;
       const texto = await chamarOpenAI(prompt, false);
       res.json({ cabecalho: texto.trim() });

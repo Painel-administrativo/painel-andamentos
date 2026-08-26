@@ -968,23 +968,40 @@ ${texto}`;
         ? polos.map((p: any) => `${p.tipo}: ${p.nome}`).join("\n")
         : "(partes não identificadas)";
 
-      const prompt = `Você é um assistente jurídico brasileiro. Monte o CABEÇALHO de uma petição simples com base nas informações abaixo.
+      const clienteUpper = clienteNome.toUpperCase();
+      const enderecamentoHint = /TRT|TRABALHO|LABOR/i.test(orgao)
+        ? "JUIZ DO TRABALHO"
+        : "JUIZ DE DIREITO";
 
-RETORNE APENAS O TEXTO DO CABEÇALHO, sem comentários, sem markdown, sem aspas.
+      const prompt = `Você é um assistente jurídico brasileiro. Monte o CABEÇALHO de uma petição.
 
-FORMATO EXATO:
-[LINHA 1: endereçamento em CAIXA ALTA começando com "EXCELENTÍSSIMO SENHOR DOUTOR JUIZ..." derivado do órgão abaixo. Se for TRT, use "...JUIZ DO TRABALHO...". Se não der pra inferir do órgão, use "...JUIZ DE DIREITO...". Inclua UF.]
+RETORNE APENAS O TEXTO DO CABEÇALHO, exatamente na estrutura mostrada no EXEMPLO. Sem markdown, sem aspas, sem comentários, sem explicações.
 
-Processo nº ${cnjFormatado}
-Classe: ${classe || "(não informada)"}
-[Linhas com Autor(a)/Réu(ré)/Reclamante/etc conforme os polos abaixo]
+ESTRUTURA OBRIGATÓRIA (não pule nenhuma linha):
+Linha 1: endereçamento em CAIXA ALTA começando por "EXCELENTÍSSIMO SENHOR DOUTOR ${enderecamentoHint}...", derivado do ÓRGÃO informado abaixo, incluíndo UF.
+Linha em branco.
+"Processo nº ${cnjFormatado}"
+"Classe: ${classe || "(não informada)"}"
+Uma linha por polo listando tipo e nome (Autor(a):, Réu(ré):, Reclamante:, Reclamado:, etc). Se não houver polos, PULE essas linhas.
+Linha em branco.
+"${clienteUpper}, já qualificado(a) nos autos em epígrafe, por seu(sua) advogado(a) que esta subscreve, vem, respeitosamente, à presença de Vossa Excelência, expor e requerer o que segue:"
 
-[NOME DO CLIENTE EM CAIXA ALTA], já qualificado(a) nos autos em epiígrafe, por seu(sua) advogado(a) que esta subscreve, vem, respeitosamente, à presença de Vossa Excelência, expor e requerer o que segue:
+EXEMPLO (não copie os nomes, só a estrutura):
+EXCELENTÍSSIMO SENHOR DOUTOR JUIZ DE DIREITO DA 1ª VARA CÍVEL DE PETRÓPOLIS - RJ
 
-DADOS:
+Processo nº 1234567-89.2024.8.19.0042
+Classe: Procedimento Comum Cível
+Autor(a): FULANO DE TAL
+Réu(ré): BELTRANO LTDA.
+
+FULANO DE TAL, já qualificado nos autos em epígrafe, por seu advogado que esta subscreve, vem, respeitosamente, à presença de Vossa Excelência, expor e requerer o que segue:
+
+AGORA MONTE O CABEÇALHO REAL COM ESTES DADOS:
 ÓRGÃO: ${orgao}
-CLIENTE (subscritor representa): ${clienteNome}
-POLOS DO PROCESSO:
+NÚMERO CNJ: ${cnjFormatado}
+CLASSE: ${classe || "(não informada)"}
+CLIENTE: ${clienteUpper}
+POLOS:
 ${polosStr}`;
 
       const texto = await chamarOpenAI(prompt, false);
