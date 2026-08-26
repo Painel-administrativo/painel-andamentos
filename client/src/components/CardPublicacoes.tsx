@@ -432,7 +432,46 @@ function formatarDataPub(iso: string): string {
 
 function limparTexto(t: string | null): string {
   if (!t) return "";
-  return t.replace(/\s+/g, " ").trim();
+  // Alguns tribunais entregam o texto da publicação em HTML (com <br>, <p>, &nbsp;, etc).
+  // Estratégia: <br> e </p> viram quebra de linha, o restante das tags cai fora,
+  // entidades comuns viram símbolos, e finalmente colapsamos espaços.
+  const semTags = t
+    .replace(/<\s*br\s*\/?\s*>/gi, "\n")
+    .replace(/<\s*\/\s*p\s*>/gi, "\n\n")
+    .replace(/<\s*\/?\s*(div|li|tr|h[1-6])\s*[^>]*>/gi, "\n")
+    .replace(/<[^>]+>/g, " ");
+  const semEntidades = semTags
+    .replace(/&nbsp;/gi, " ")
+    .replace(/&amp;/gi, "&")
+    .replace(/&lt;/gi, "<")
+    .replace(/&gt;/gi, ">")
+    .replace(/&quot;/gi, '"')
+    .replace(/&#39;/gi, "'")
+    .replace(/&aacute;/gi, "á")
+    .replace(/&eacute;/gi, "é")
+    .replace(/&iacute;/gi, "í")
+    .replace(/&oacute;/gi, "ó")
+    .replace(/&uacute;/gi, "ú")
+    .replace(/&atilde;/gi, "ã")
+    .replace(/&otilde;/gi, "õ")
+    .replace(/&ccedil;/gi, "ç")
+    .replace(/&Aacute;/g, "Á")
+    .replace(/&Eacute;/g, "É")
+    .replace(/&Iacute;/g, "Í")
+    .replace(/&Oacute;/g, "Ó")
+    .replace(/&Uacute;/g, "Ú")
+    .replace(/&Atilde;/g, "Ã")
+    .replace(/&Otilde;/g, "Õ")
+    .replace(/&Ccedil;/g, "Ç")
+    .replace(/&#(\d+);/g, (_, n) => String.fromCharCode(parseInt(n, 10)))
+    .replace(/&#x([0-9a-f]+);/gi, (_, h) => String.fromCharCode(parseInt(h, 16)));
+  // Colapsa espaços por linha, mas preserva quebras
+  return semEntidades
+    .split("\n")
+    .map((linha) => linha.replace(/[\t ]+/g, " ").trim())
+    .filter((linha, i, arr) => !(linha === "" && arr[i - 1] === ""))
+    .join("\n")
+    .trim();
 }
 
 // Retorna a data no formato DD/MM/AAAA a partir de um objeto Date.

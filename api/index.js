@@ -34217,7 +34217,8 @@ async function registerRoutes(httpServer, app2) {
       if (!pub) {
         return res.status(404).json({ erro: "Publica\xE7\xE3o n\xE3o encontrada" });
       }
-      const texto = (pub.texto || "").slice(0, 6e3);
+      const textoLimpo = (pub.texto || "").replace(/<[^>]+>/g, " ").replace(/&nbsp;/gi, " ").replace(/&amp;/gi, "&").replace(/&lt;/gi, "<").replace(/&gt;/gi, ">").replace(/&quot;/gi, '"').replace(/&#39;/gi, "'").replace(/&#(\d+);/g, (_, n) => String.fromCharCode(parseInt(n, 10))).replace(/\s+/g, " ").trim();
+      const texto = textoLimpo.slice(0, 6e3);
       if (!texto.trim()) {
         return res.json({ polos: [], observacao: "Publica\xE7\xE3o sem texto" });
       }
