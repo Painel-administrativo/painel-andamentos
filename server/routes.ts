@@ -847,5 +847,153 @@ export async function registerRoutes(
     }
   });
 
+  // ============================================================
+  // Fase 3 — LLM para gerar cabeçalho de petição
+  // ============================================================
+
+  async function chamarOpenAI(prompt: string, jsonMode = false): Promise<string> {
+    const url = process.env.CUSTOM_CRED_API_OPENAI_COM_URL || "https://api.openai.com";
+    const token = process.env.CUSTOM_CRED_API_OPENAI_COM_TOKEN;
+    if (!token) {
+      throw new Error("OpenAI não configurada no servidor");
+    }
+    const body: any = {
+      model: "gpt-4o-mini",
+      messages: [{ role: "user", content: prompt }],
+      temperature: 0.1,
+    };
+    if (jsonMode) {
+      body.response_format = { type: "json_object" };
+    }
+    const resp = await fetch(`${url}/v1/chat/completions`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${token}`,
+      },
+      body: JSON.stringify(body),
+    });
+    if (!resp.ok) {
+      const errText = await resp.text().catch(() => "");
+      throw new Error(`OpenAI HTTP ${resp.status}: ${errText.slice(0, 200)}`);
+    }
+    const data = await resp.json();
+    const content = data?.choices?.[0]?.message?.content;
+    if (!content) {
+      throw new Error("OpenAI retornou resposta vazia");
+    }
+    return content;
+  }
+
+  // 1ª chamada: extrai polos da publicação
+  app.post("/api/publicacoes/:id/extrair-partes", async (req, res) => {
+    try {
+      const id = parseInt(req.params.id, 10);
+      if (!id || Number.isNaN(id)) {
+        return res.status(400).json({ erro: "ID inválido" });
+      }
+      const pub = await storage.getPublicacaoPorId(id);
+      if (!pub) {
+        return res.status(404).json({ erro: "Publicação não encontrada" });
+      }
+      const texto = (pub.texto || "").slice(0, 6000);
+      if (!texto.trim()) {
+        return res.json({ polos: [], observacao: "Publicação sem texto" });
+      }
+      const prompt = `Você é um assistente jurídico brasileiro. Extraia as PARTES do processo mencionadas no texto de publicação abaixo.
+
+Retorne JSON no formato exato:
+{
+  "polos": [
+    {"tipo": "AUTOR", "nome": "NOME COMPLETO"},
+    {"tipo": "RÉU", "nome": "NOME COMPLETO"}
+  ],
+  "observacao": "texto curto se não conseguir identificar todas as partes, ou null"
+}
+
+Regras:
+- Tipos possíveis: AUTOR, RÉU, RECLAMANTE, RECLAMADO, EXEQUENTE, EXECUTADO, IMPETRANTE, IMPETRADO, EMBARGANTE, EMBARGADO, RECORRENTE, RECORRIDO, REQUERENTE, REQUERIDO, TERCEIRO, LITISCONSORTE, INTERESSADO, MINISTÉRIO PÚBLICO, UNIÃO, MUNICÍPIO, ESTADO.
+- Ignore juízes, promotores, advogados, escrivães, oficiais de justiça.
+- Nomes em CAIXA ALTA se o texto original assim os escrever.
+- Se não achar nenhuma parte, retorne "polos": [] e explique em "observacao".
+- Não invente nomes. Só use o que está escrito.
+
+TEXTO DA PUBLICAÇÃO:
+${texto}`;
+      const raw = await chamarOpenAI(prompt, true);
+      let parsed: any;
+      try {
+        parsed = JSON.parse(raw);
+      } catch {
+        return res.status(502).json({ erro: "LLM retornou JSON inválido", raw: raw.slice(0, 300) });
+      }
+      res.json({
+        polos: Array.isArray(parsed.polos) ? parsed.polos : [],
+        observacao: parsed.observacao || null,
+      });
+    } catch (e: any) {
+      console.error("extrair-partes erro:", e);
+      res.status(500).json({ erro: e?.message || String(e) });
+    }
+  });
+
+  // 2ª chamada: monta o cabeçalho
+  app.post("/api/publicacoes/:id/gerar-cabecalho", async (req, res) => {
+    try {
+      const id = parseInt(req.params.id, 10);
+      if (!id || Number.isNaN(id)) {
+        return res.status(400).json({ erro: "ID inválido" });
+      }
+      const { clienteNome, polos } = req.body || {};
+      if (!clienteNome || typeof clienteNome !== "string") {
+        return res.status(400).json({ erro: "clienteNome é obrigatório" });
+      }
+      const pub = await storage.getPublicacaoPorId(id);
+      if (!pub) {
+        return res.status(404).json({ erro: "Publicação não encontrada" });
+      }
+      // Buscar dados do processo
+      const processo = await storage.getProcesso(pub.processoId);
+      if (!processo) {
+        return res.status(404).json({ erro: "Processo não encontrado" });
+      }
+
+      // Formatação CNJ
+      const num = processo.numero.replace(/\D/g, "").padStart(20, "0");
+      const cnjFormatado = `${num.slice(0, 7)}-${num.slice(7, 9)}.${num.slice(9, 13)}.${num.slice(13, 14)}.${num.slice(14, 16)}.${num.slice(16, 20)}`;
+
+      const orgao = pub.nomeOrgao || "";
+      const classe = pub.nomeClasse || "";
+      const polosStr = Array.isArray(polos) && polos.length > 0
+        ? polos.map((p: any) => `${p.tipo}: ${p.nome}`).join("\n")
+        : "(partes não identificadas)";
+
+      const prompt = `Você é um assistente jurídico brasileiro. Monte o CABEÇALHO de uma petição simples com base nas informações abaixo.
+
+RETORNE APENAS O TEXTO DO CABEÇALHO, sem comentários, sem markdown, sem aspas.
+
+FORMATO EXATO:
+[LINHA 1: endereçamento em CAIXA ALTA começando com "EXCELENTÍSSIMO SENHOR DOUTOR JUIZ..." derivado do órgão abaixo. Se for TRT, use "...JUIZ DO TRABALHO...". Se não der pra inferir do órgão, use "...JUIZ DE DIREITO...". Inclua UF.]
+
+Processo nº ${cnjFormatado}
+Classe: ${classe || "(não informada)"}
+[Linhas com Autor(a)/Réu(ré)/Reclamante/etc conforme os polos abaixo]
+
+[NOME DO CLIENTE EM CAIXA ALTA], já qualificado(a) nos autos em epiígrafe, por seu(sua) advogado(a) que esta subscreve, vem, respeitosamente, à presença de Vossa Excelência, expor e requerer o que segue:
+
+DADOS:
+ÓRGÃO: ${orgao}
+CLIENTE (subscritor representa): ${clienteNome}
+POLOS DO PROCESSO:
+${polosStr}`;
+
+      const texto = await chamarOpenAI(prompt, false);
+      res.json({ cabecalho: texto.trim() });
+    } catch (e: any) {
+      console.error("gerar-cabecalho erro:", e);
+      res.status(500).json({ erro: e?.message || String(e) });
+    }
+  });
+
   return httpServer;
 }

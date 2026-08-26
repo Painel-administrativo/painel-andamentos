@@ -14,6 +14,11 @@ import {
   Inbox,
   Copy,
   MessageSquare,
+  FileText,
+  Loader2,
+  Check,
+  X,
+  Pencil,
 } from "lucide-react";
 import { formatarCNJ, inferirTribunal, urlPortal } from "@/lib/cnj";
 import type { PublicacaoComProcesso } from "@shared/schema";
@@ -132,6 +137,282 @@ function AnotacaoBloco({ pub, onSalvar, onToast }: AnotacaoBlocoProps) {
   );
 }
 
+// ============================================================
+// Modal "Gerar cabeçalho da petição" (2 chamadas LLM)
+// ============================================================
+interface GerarCabecalhoModalProps {
+  pub: PublicacaoComProcesso;
+  onFechar: () => void;
+  onUsarComoApelido: (nome: string) => void;
+  onToast: (t: { title: string; description?: string; variant?: "destructive" }) => void;
+}
+interface Polo {
+  tipo: string;
+  nome: string;
+}
+
+function GerarCabecalhoModal({ pub, onFechar, onUsarComoApelido, onToast }: GerarCabecalhoModalProps) {
+  const [etapa, setEtapa] = useState<"extraindo" | "escolha" | "gerando" | "pronto" | "erro">(
+    "extraindo"
+  );
+  const [polos, setPolos] = useState<Polo[]>([]);
+  const [observacao, setObservacao] = useState<string | null>(null);
+  const [clienteEscolhido, setClienteEscolhido] = useState<string>("");
+  const [cabecalho, setCabecalho] = useState<string>("");
+  const [erro, setErro] = useState<string>("");
+
+  useEffect(() => {
+    let cancelado = false;
+    (async () => {
+      try {
+        const resp = await apiRequest("POST", `/api/publicacoes/${pub.id}/extrair-partes`, {});
+        const data = await resp.json();
+        if (cancelado) return;
+        setPolos(Array.isArray(data.polos) ? data.polos : []);
+        setObservacao(data.observacao || null);
+        setEtapa("escolha");
+      } catch (e: any) {
+        if (cancelado) return;
+        setErro(e?.message || String(e));
+        setEtapa("erro");
+      }
+    })();
+    return () => {
+      cancelado = true;
+    };
+  }, [pub.id]);
+
+  const gerar = async (clienteNome: string) => {
+    setClienteEscolhido(clienteNome);
+    setEtapa("gerando");
+    try {
+      const resp = await apiRequest("POST", `/api/publicacoes/${pub.id}/gerar-cabecalho`, {
+        clienteNome,
+        polos,
+      });
+      const data = await resp.json();
+      setCabecalho(data.cabecalho || "");
+      setEtapa("pronto");
+    } catch (e: any) {
+      setErro(e?.message || String(e));
+      setEtapa("erro");
+    }
+  };
+
+  const copiar = async () => {
+    try {
+      await navigator.clipboard.writeText(cabecalho);
+      onToast({ title: "Cabeçalho copiado", description: "Cole no Word." });
+    } catch {
+      onToast({ title: "Não consegui copiar", variant: "destructive" });
+    }
+  };
+
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4"
+      onClick={onFechar}
+    >
+      <div
+        className="bg-background border border-border rounded-lg shadow-lg max-w-2xl w-full max-h-[85vh] overflow-y-auto"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="flex items-center justify-between p-4 border-b border-border">
+          <h3 className="font-semibold text-foreground">Gerar cabeçalho da petição</h3>
+          <button
+            onClick={onFechar}
+            className="text-muted-foreground hover:text-foreground"
+            data-testid="button-fechar-modal-cabecalho"
+          >
+            <X className="h-4 w-4" />
+          </button>
+        </div>
+
+        <div className="p-4 space-y-4">
+          {etapa === "extraindo" && (
+            <div className="flex items-center gap-2 text-sm text-muted-foreground">
+              <Loader2 className="h-4 w-4 animate-spin" />
+              Lendo a publicação e extraindo partes...
+            </div>
+          )}
+
+          {etapa === "escolha" && (
+            <div className="space-y-3">
+              {polos.length === 0 ? (
+                <div className="space-y-2">
+                  <p className="text-sm text-muted-foreground">
+                    A IA não conseguiu identificar partes na publicação. Digite o nome do cliente manualmente:
+                  </p>
+                  {observacao && (
+                    <p className="text-xs text-muted-foreground italic">{observacao}</p>
+                  )}
+                </div>
+              ) : (
+                <div className="space-y-2">
+                  <p className="text-sm text-foreground font-medium">
+                    Qual dessas partes é o cliente do subscritor?
+                  </p>
+                  <ul className="space-y-1.5">
+                    {polos.map((p, i) => (
+                      <li key={i}>
+                        <button
+                          onClick={() => gerar(p.nome)}
+                          className="w-full text-left px-3 py-2 rounded-md border border-border hover:bg-muted transition-colors"
+                          data-testid={`button-escolher-polo-${i}`}
+                        >
+                          <span className="text-xs uppercase text-muted-foreground mr-2">
+                            {p.tipo}
+                          </span>
+                          <span className="text-sm text-foreground">{p.nome}</span>
+                        </button>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+              <ManualClienteInput onConfirmar={gerar} />
+            </div>
+          )}
+
+          {etapa === "gerando" && (
+            <div className="flex items-center gap-2 text-sm text-muted-foreground">
+              <Loader2 className="h-4 w-4 animate-spin" />
+              Montando o cabeçalho...
+            </div>
+          )}
+
+          {etapa === "pronto" && (
+            <div className="space-y-3">
+              <div className="text-xs text-muted-foreground">
+                Cliente: <span className="font-medium text-foreground">{clienteEscolhido}</span>
+              </div>
+              <textarea
+                readOnly
+                value={cabecalho}
+                className="w-full min-h-[220px] resize-y rounded-md border border-border bg-muted/30 px-3 py-2 text-sm font-mono text-foreground focus:outline-none"
+                data-testid="textarea-cabecalho-gerado"
+              />
+              <div className="flex items-center gap-2 flex-wrap">
+                <Button size="sm" onClick={copiar} data-testid="button-copiar-cabecalho">
+                  <Copy className="h-3 w-3 mr-1.5" /> Copiar cabeçalho
+                </Button>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={() => {
+                    onUsarComoApelido(clienteEscolhido);
+                    onFechar();
+                  }}
+                  data-testid="button-usar-apelido"
+                >
+                  <Pencil className="h-3 w-3 mr-1.5" /> Usar como apelido
+                </Button>
+                <Button size="sm" variant="ghost" onClick={() => setEtapa("escolha")} data-testid="button-voltar-escolha">
+                  Voltar
+                </Button>
+              </div>
+            </div>
+          )}
+
+          {etapa === "erro" && (
+            <div className="space-y-2">
+              <p className="text-sm text-destructive">Erro: {erro}</p>
+              <Button size="sm" variant="outline" onClick={onFechar}>
+                Fechar
+              </Button>
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function ManualClienteInput({ onConfirmar }: { onConfirmar: (nome: string) => void }) {
+  const [valor, setValor] = useState("");
+  return (
+    <div className="flex gap-2 pt-2 border-t border-border">
+      <input
+        type="text"
+        value={valor}
+        onChange={(e) => setValor(e.target.value)}
+        placeholder="Ou digite o nome do cliente"
+        className="flex-1 rounded-md border border-border bg-background px-2.5 py-1.5 text-sm text-foreground focus:outline-none focus:ring-1 focus:ring-primary"
+        data-testid="input-cliente-manual"
+      />
+      <Button size="sm" disabled={!valor.trim()} onClick={() => onConfirmar(valor.trim())} data-testid="button-confirmar-cliente-manual">
+        Gerar
+      </Button>
+    </div>
+  );
+}
+
+// ============================================================
+// Editor inline de apelido do processo
+// ============================================================
+interface EditorApelidoProps {
+  processoId: number;
+  apelidoAtual: string | null;
+  valorInicial?: string;
+  onSalvar: (apelido: string) => Promise<void>;
+  onCancelar: () => void;
+}
+
+function EditorApelido({ processoId, apelidoAtual, valorInicial, onSalvar, onCancelar }: EditorApelidoProps) {
+  const [valor, setValor] = useState(valorInicial || apelidoAtual || "");
+  const [salvando, setSalvando] = useState(false);
+  const inputRef = useRef<HTMLInputElement | null>(null);
+  useEffect(() => {
+    inputRef.current?.focus();
+    inputRef.current?.select();
+  }, []);
+
+  const salvar = async () => {
+    setSalvando(true);
+    try {
+      await onSalvar(valor.trim());
+    } finally {
+      setSalvando(false);
+    }
+  };
+
+  return (
+    <div className="flex items-center gap-1.5" onClick={(e) => e.stopPropagation()}>
+      <input
+        ref={inputRef}
+        type="text"
+        value={valor}
+        onChange={(e) => setValor(e.target.value)}
+        onKeyDown={(e) => {
+          if (e.key === "Enter") salvar();
+          if (e.key === "Escape") onCancelar();
+        }}
+        disabled={salvando}
+        className="flex-1 min-w-[240px] rounded-md border border-primary bg-background px-2 py-1 text-sm text-foreground focus:outline-none"
+        data-testid={`input-apelido-${processoId}`}
+      />
+      <button
+        onClick={salvar}
+        disabled={salvando}
+        className="text-primary hover:opacity-80 disabled:opacity-50"
+        title="Salvar (Enter)"
+        data-testid={`button-salvar-apelido-${processoId}`}
+      >
+        {salvando ? <Loader2 className="h-4 w-4 animate-spin" /> : <Check className="h-4 w-4" />}
+      </button>
+      <button
+        onClick={onCancelar}
+        disabled={salvando}
+        className="text-muted-foreground hover:text-foreground disabled:opacity-50"
+        title="Cancelar (Esc)"
+        data-testid={`button-cancelar-apelido-${processoId}`}
+      >
+        <X className="h-4 w-4" />
+      </button>
+    </div>
+  );
+}
+
 interface RespListagem {
   items: PublicacaoComProcesso[];
   proximoCursor: string | null;
@@ -212,6 +493,44 @@ export function CardPublicacoes() {
   const [filtro, setFiltro] = useState<Filtro>("todas");
   const [expandidas, setExpandidas] = useState<Set<number>>(new Set());
   const sentinelaRef = useRef<HTMLDivElement | null>(null);
+
+  // Estado do modal de gerar cabeçalho + editor de apelido
+  const [modalCabecalhoPub, setModalCabecalhoPub] = useState<PublicacaoComProcesso | null>(null);
+  const [editandoApelido, setEditandoApelido] = useState<{ processoId: number; sugestao?: string } | null>(null);
+
+  const salvarApelidoMut = useMutation({
+    mutationFn: async ({ processoId, apelido }: { processoId: number; apelido: string }) => {
+      const resp = await apiRequest("PATCH", `/api/processos/${processoId}`, { apelido });
+      return resp.json();
+    },
+    onSuccess: (_data, vars) => {
+      queryClient.setQueriesData<{ pages: RespListagem[] }>(
+        { queryKey: ["/api/publicacoes"] },
+        (old) => {
+          if (!old) return old;
+          return {
+            ...old,
+            pages: old.pages.map((page) => ({
+              ...page,
+              items: page.items.map((p) =>
+                p.processoId === vars.processoId ? { ...p, processoApelido: vars.apelido || null } : p
+              ),
+            })),
+          };
+        }
+      );
+      queryClient.invalidateQueries({ queryKey: ["/api/processos"] });
+      toast({ title: "Apelido atualizado" });
+      setEditandoApelido(null);
+    },
+    onError: (e: any) => {
+      toast({
+        title: "Não consegui salvar o apelido",
+        description: e?.message || String(e),
+        variant: "destructive",
+      });
+    },
+  });
 
   // -------- Contador de não lidas (badge) --------
   const { data: countData } = useQuery<{ naoLidas: number }>({
@@ -496,12 +815,38 @@ export function CardPublicacoes() {
                           {pub.tipoDocumento}
                         </span>
                       )}
-                      <span
-                        className="text-xs text-primary truncate max-w-[240px]"
-                        title={pub.processoApelido || formatarCNJ(pub.processoNumero)}
-                      >
-                        · {pub.processoApelido || formatarCNJ(pub.processoNumero)}
-                      </span>
+                      {editandoApelido?.processoId === pub.processoId ? (
+                        <EditorApelido
+                          processoId={pub.processoId}
+                          apelidoAtual={pub.processoApelido}
+                          valorInicial={editandoApelido.sugestao}
+                          onSalvar={async (apelido) => {
+                            await salvarApelidoMut.mutateAsync({
+                              processoId: pub.processoId,
+                              apelido,
+                            });
+                          }}
+                          onCancelar={() => setEditandoApelido(null)}
+                        />
+                      ) : (
+                        <span
+                          className="text-xs text-primary truncate max-w-[240px] inline-flex items-center gap-1"
+                          title={pub.processoApelido || formatarCNJ(pub.processoNumero)}
+                        >
+                          · {pub.processoApelido || formatarCNJ(pub.processoNumero)}
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setEditandoApelido({ processoId: pub.processoId });
+                            }}
+                            className="text-muted-foreground hover:text-foreground opacity-60 hover:opacity-100"
+                            title="Editar apelido do processo"
+                            data-testid={`button-editar-apelido-${pub.processoId}`}
+                          >
+                            <Pencil className="h-3 w-3" />
+                          </button>
+                        </span>
+                      )}
                     </div>
                     {pub.nomeOrgao && (
                       <div className="text-xs text-muted-foreground truncate mt-0.5">
@@ -636,6 +981,19 @@ export function CardPublicacoes() {
                         size="sm"
                         variant="outline"
                         className="h-7 text-xs"
+                        data-testid={`button-gerar-cabecalho-${pub.id}`}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setModalCabecalhoPub(pub);
+                        }}
+                        title="Gerar cabeçalho da petição com IA (extrai partes e monta endereçamento)"
+                      >
+                        <FileText className="h-3 w-3 mr-1.5" /> Gerar cabeçalho
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        className="h-7 text-xs"
                         data-testid={`button-copiar-cnj-${pub.id}`}
                         onClick={async (e) => {
                           e.stopPropagation();
@@ -737,6 +1095,23 @@ export function CardPublicacoes() {
         <div ref={sentinelaRef} className="p-4 text-center text-xs text-muted-foreground">
           {isFetchingNextPage ? "Carregando mais..." : "Rolar para carregar mais"}
         </div>
+      )}
+
+      {/* Modal de gerar cabeçalho */}
+      {modalCabecalhoPub && (
+        <GerarCabecalhoModal
+          pub={modalCabecalhoPub}
+          onFechar={() => setModalCabecalhoPub(null)}
+          onUsarComoApelido={(nome) => {
+            const base = modalCabecalhoPub.processoApelido || "";
+            const sugestao = base ? `${base} - ${nome}` : nome;
+            setEditandoApelido({
+              processoId: modalCabecalhoPub.processoId,
+              sugestao,
+            });
+          }}
+          onToast={(t) => toast(t)}
+        />
       )}
     </div>
   );

@@ -29344,6 +29344,19 @@ var PgStorage = class {
     }
     return { inseridas, ignoradas };
   }
+  async getPublicacaoPorId(id) {
+    const { rows } = await pool.query(
+      `SELECT id, processo_id, hash, data_disponibilizacao,
+              tipo_comunicacao, tipo_documento, nome_orgao, nome_classe,
+              texto, link, numero_comunicacao, criado_em, lido_em, informado_em, anotacao
+       FROM publicacoes
+       WHERE id = $1
+       LIMIT 1`,
+      [id]
+    );
+    const row = rows[0];
+    return row ? mapPublicacao(row) : void 0;
+  }
   async listarPublicacoesPorProcesso(processoId) {
     const { rows } = await pool.query(
       `SELECT id, processo_id, hash, data_disponibilizacao,
@@ -34158,6 +34171,137 @@ async function registerRoutes(httpServer, app2) {
       res.json(resultado);
     } catch (e) {
       console.error("publicacoes/anotacao erro:", e);
+      res.status(500).json({ erro: e?.message || String(e) });
+    }
+  });
+  async function chamarOpenAI(prompt, jsonMode = false) {
+    const url = process.env.CUSTOM_CRED_API_OPENAI_COM_URL || "https://api.openai.com";
+    const token = process.env.CUSTOM_CRED_API_OPENAI_COM_TOKEN;
+    if (!token) {
+      throw new Error("OpenAI n\xE3o configurada no servidor");
+    }
+    const body = {
+      model: "gpt-4o-mini",
+      messages: [{ role: "user", content: prompt }],
+      temperature: 0.1
+    };
+    if (jsonMode) {
+      body.response_format = { type: "json_object" };
+    }
+    const resp = await fetch(`${url}/v1/chat/completions`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${token}`
+      },
+      body: JSON.stringify(body)
+    });
+    if (!resp.ok) {
+      const errText = await resp.text().catch(() => "");
+      throw new Error(`OpenAI HTTP ${resp.status}: ${errText.slice(0, 200)}`);
+    }
+    const data = await resp.json();
+    const content = data?.choices?.[0]?.message?.content;
+    if (!content) {
+      throw new Error("OpenAI retornou resposta vazia");
+    }
+    return content;
+  }
+  app2.post("/api/publicacoes/:id/extrair-partes", async (req, res) => {
+    try {
+      const id = parseInt(req.params.id, 10);
+      if (!id || Number.isNaN(id)) {
+        return res.status(400).json({ erro: "ID inv\xE1lido" });
+      }
+      const pub = await storage.getPublicacaoPorId(id);
+      if (!pub) {
+        return res.status(404).json({ erro: "Publica\xE7\xE3o n\xE3o encontrada" });
+      }
+      const texto = (pub.texto || "").slice(0, 6e3);
+      if (!texto.trim()) {
+        return res.json({ polos: [], observacao: "Publica\xE7\xE3o sem texto" });
+      }
+      const prompt = `Voc\xEA \xE9 um assistente jur\xEDdico brasileiro. Extraia as PARTES do processo mencionadas no texto de publica\xE7\xE3o abaixo.
+
+Retorne JSON no formato exato:
+{
+  "polos": [
+    {"tipo": "AUTOR", "nome": "NOME COMPLETO"},
+    {"tipo": "R\xC9U", "nome": "NOME COMPLETO"}
+  ],
+  "observacao": "texto curto se n\xE3o conseguir identificar todas as partes, ou null"
+}
+
+Regras:
+- Tipos poss\xEDveis: AUTOR, R\xC9U, RECLAMANTE, RECLAMADO, EXEQUENTE, EXECUTADO, IMPETRANTE, IMPETRADO, EMBARGANTE, EMBARGADO, RECORRENTE, RECORRIDO, REQUERENTE, REQUERIDO, TERCEIRO, LITISCONSORTE, INTERESSADO, MINIST\xC9RIO P\xDABLICO, UNI\xC3O, MUNIC\xCDPIO, ESTADO.
+- Ignore ju\xEDzes, promotores, advogados, escriv\xE3es, oficiais de justi\xE7a.
+- Nomes em CAIXA ALTA se o texto original assim os escrever.
+- Se n\xE3o achar nenhuma parte, retorne "polos": [] e explique em "observacao".
+- N\xE3o invente nomes. S\xF3 use o que est\xE1 escrito.
+
+TEXTO DA PUBLICA\xC7\xC3O:
+${texto}`;
+      const raw = await chamarOpenAI(prompt, true);
+      let parsed;
+      try {
+        parsed = JSON.parse(raw);
+      } catch {
+        return res.status(502).json({ erro: "LLM retornou JSON inv\xE1lido", raw: raw.slice(0, 300) });
+      }
+      res.json({
+        polos: Array.isArray(parsed.polos) ? parsed.polos : [],
+        observacao: parsed.observacao || null
+      });
+    } catch (e) {
+      console.error("extrair-partes erro:", e);
+      res.status(500).json({ erro: e?.message || String(e) });
+    }
+  });
+  app2.post("/api/publicacoes/:id/gerar-cabecalho", async (req, res) => {
+    try {
+      const id = parseInt(req.params.id, 10);
+      if (!id || Number.isNaN(id)) {
+        return res.status(400).json({ erro: "ID inv\xE1lido" });
+      }
+      const { clienteNome, polos } = req.body || {};
+      if (!clienteNome || typeof clienteNome !== "string") {
+        return res.status(400).json({ erro: "clienteNome \xE9 obrigat\xF3rio" });
+      }
+      const pub = await storage.getPublicacaoPorId(id);
+      if (!pub) {
+        return res.status(404).json({ erro: "Publica\xE7\xE3o n\xE3o encontrada" });
+      }
+      const processo = await storage.getProcesso(pub.processoId);
+      if (!processo) {
+        return res.status(404).json({ erro: "Processo n\xE3o encontrado" });
+      }
+      const num = processo.numero.replace(/\D/g, "").padStart(20, "0");
+      const cnjFormatado = `${num.slice(0, 7)}-${num.slice(7, 9)}.${num.slice(9, 13)}.${num.slice(13, 14)}.${num.slice(14, 16)}.${num.slice(16, 20)}`;
+      const orgao = pub.nomeOrgao || "";
+      const classe = pub.nomeClasse || "";
+      const polosStr = Array.isArray(polos) && polos.length > 0 ? polos.map((p) => `${p.tipo}: ${p.nome}`).join("\n") : "(partes n\xE3o identificadas)";
+      const prompt = `Voc\xEA \xE9 um assistente jur\xEDdico brasileiro. Monte o CABE\xC7ALHO de uma peti\xE7\xE3o simples com base nas informa\xE7\xF5es abaixo.
+
+RETORNE APENAS O TEXTO DO CABE\xC7ALHO, sem coment\xE1rios, sem markdown, sem aspas.
+
+FORMATO EXATO:
+[LINHA 1: endere\xE7amento em CAIXA ALTA come\xE7ando com "EXCELENT\xCDSSIMO SENHOR DOUTOR JUIZ..." derivado do \xF3rg\xE3o abaixo. Se for TRT, use "...JUIZ DO TRABALHO...". Se n\xE3o der pra inferir do \xF3rg\xE3o, use "...JUIZ DE DIREITO...". Inclua UF.]
+
+Processo n\xBA ${cnjFormatado}
+Classe: ${classe || "(n\xE3o informada)"}
+[Linhas com Autor(a)/R\xE9u(r\xE9)/Reclamante/etc conforme os polos abaixo]
+
+[NOME DO CLIENTE EM CAIXA ALTA], j\xE1 qualificado(a) nos autos em epi\xEDgrafe, por seu(sua) advogado(a) que esta subscreve, vem, respeitosamente, \xE0 presen\xE7a de Vossa Excel\xEAncia, expor e requerer o que segue:
+
+DADOS:
+\xD3RG\xC3O: ${orgao}
+CLIENTE (subscritor representa): ${clienteNome}
+POLOS DO PROCESSO:
+${polosStr}`;
+      const texto = await chamarOpenAI(prompt, false);
+      res.json({ cabecalho: texto.trim() });
+    } catch (e) {
+      console.error("gerar-cabecalho erro:", e);
       res.status(500).json({ erro: e?.message || String(e) });
     }
   });

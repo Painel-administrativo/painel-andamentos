@@ -176,6 +176,7 @@ export interface IStorage {
   ): Promise<{ inseridas: number; ignoradas: number }>;
   listarPublicacoesPorProcesso(processoId: number): Promise<Publicacao[]>;
   listarPublicacoesRecentes(desdeIso: string): Promise<Publicacao[]>;
+  getPublicacaoPorId(id: number): Promise<Publicacao | undefined>;
 
   // Fase 3B — Card de publicações com scroll infinito e marcação de lida
   listarPublicacoes(opts: {
@@ -364,6 +365,20 @@ export class PgStorage implements IStorage {
       else ignoradas++;
     }
     return { inseridas, ignoradas };
+  }
+
+  async getPublicacaoPorId(id: number): Promise<Publicacao | undefined> {
+    const { rows } = await pool.query<PublicacaoRow>(
+      `SELECT id, processo_id, hash, data_disponibilizacao,
+              tipo_comunicacao, tipo_documento, nome_orgao, nome_classe,
+              texto, link, numero_comunicacao, criado_em, lido_em, informado_em, anotacao
+       FROM publicacoes
+       WHERE id = $1
+       LIMIT 1`,
+      [id]
+    );
+    const row = rows[0];
+    return row ? mapPublicacao(row) : undefined;
   }
 
   async listarPublicacoesPorProcesso(processoId: number): Promise<Publicacao[]> {
