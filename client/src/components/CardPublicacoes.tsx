@@ -872,6 +872,22 @@ export function CardPublicacoes() {
                       <span className="text-xs font-mono text-muted-foreground">
                         {formatarDataPub(pub.dataDisponibilizacao)}
                       </span>
+                      {pub.siglaTribunal && (() => {
+                        const superior = pub.siglaTribunal === "STJ" || pub.siglaTribunal === "STF";
+                        return (
+                          <span
+                            className={`text-[10px] font-semibold uppercase tracking-wide px-1.5 py-0.5 rounded border ${
+                              superior
+                                ? "bg-amber-100 text-amber-900 border-amber-300 dark:bg-amber-900/40 dark:text-amber-200 dark:border-amber-700"
+                                : "bg-muted text-muted-foreground border-transparent"
+                            }`}
+                            title={superior ? `Publicação em tribunal superior (${pub.siglaTribunal})` : `Tribunal: ${pub.siglaTribunal}`}
+                            data-testid={`badge-tribunal-${pub.id}`}
+                          >
+                            {pub.siglaTribunal}
+                          </span>
+                        );
+                      })()}
                       {pub.tipoDocumento && (
                         <span className={`text-sm ${naoLida ? "font-semibold text-foreground" : "text-foreground/80"}`}>
                           {pub.tipoDocumento}

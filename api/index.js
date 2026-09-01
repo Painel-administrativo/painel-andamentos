@@ -29164,6 +29164,7 @@ function mapPublicacao(r) {
     tipoDocumento: r.tipo_documento,
     nomeOrgao: r.nome_orgao,
     nomeClasse: r.nome_classe,
+    siglaTribunal: r.sigla_tribunal,
     texto: r.texto,
     link: r.link,
     numeroComunicacao: r.numero_comunicacao,
@@ -29361,6 +29362,7 @@ var PgStorage = class {
     const { rows } = await pool.query(
       `SELECT id, processo_id, hash, data_disponibilizacao,
               tipo_comunicacao, tipo_documento, nome_orgao, nome_classe,
+              raw_json->>'siglaTribunal' AS sigla_tribunal,
               texto, link, numero_comunicacao, criado_em, lido_em, informado_em, anotacao
        FROM publicacoes
        WHERE processo_id = $1
@@ -29373,6 +29375,7 @@ var PgStorage = class {
     const { rows } = await pool.query(
       `SELECT id, processo_id, hash, data_disponibilizacao,
               tipo_comunicacao, tipo_documento, nome_orgao, nome_classe,
+              raw_json->>'siglaTribunal' AS sigla_tribunal,
               texto, link, numero_comunicacao, criado_em, lido_em, informado_em, anotacao
        FROM publicacoes
        WHERE criado_em >= $1
@@ -29399,6 +29402,7 @@ var PgStorage = class {
     const { rows } = await pool.query(
       `SELECT pub.id, pub.processo_id, pub.hash, pub.data_disponibilizacao,
               pub.tipo_comunicacao, pub.tipo_documento, pub.nome_orgao, pub.nome_classe,
+              pub.raw_json->>'siglaTribunal' AS sigla_tribunal,
               pub.texto, pub.link, pub.numero_comunicacao, pub.criado_em, pub.lido_em, pub.informado_em, pub.anotacao,
               pr.apelido AS processo_apelido, pr.numero AS processo_numero
        FROM publicacoes pub

@@ -90,6 +90,7 @@ export interface Publicacao {
   tipoDocumento: string | null;
   nomeOrgao: string | null;
   nomeClasse: string | null;
+  siglaTribunal: string | null; // Ex: TJRJ, STJ, TRT1, TRF2 — extraído do raw_json do DJEN
   texto: string | null;
   link: string | null;
   numeroComunicacao: number | null;
