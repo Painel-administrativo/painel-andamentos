@@ -29396,6 +29396,19 @@ var PgStorage = class {
       filtros.push(`pub.criado_em < $${idx++}`);
       args.push(opts.antesDe);
     }
+    if (opts.busca && opts.busca.trim()) {
+      const termo = opts.busca.trim();
+      const soDigitos = termo.replace(/\D/g, "");
+      filtros.push(
+        soDigitos.length > 0 ? `(pr.apelido ILIKE $${idx} OR pr.numero ILIKE $${idx + 1})` : `pr.apelido ILIKE $${idx}`
+      );
+      args.push(`%${termo}%`);
+      idx++;
+      if (soDigitos.length > 0) {
+        args.push(`%${soDigitos}%`);
+        idx++;
+      }
+    }
     args.push(opts.limite);
     const limIdx = idx;
     const where = filtros.length > 0 ? `WHERE ${filtros.join(" AND ")}` : "";
@@ -34097,13 +34110,15 @@ async function registerRoutes(httpServer, app2) {
       const limite = Math.min(Math.max(parseInt(String(req.query.limite ?? "50"), 10) || 50, 1), 200);
       const antesDe = req.query.antesDe ? String(req.query.antesDe) : null;
       const naoLidas = String(req.query.naoLidas ?? "").toLowerCase() === "true";
+      const busca = req.query.busca ? String(req.query.busca) : null;
       if (antesDe && Number.isNaN(Date.parse(antesDe))) {
         return res.status(400).json({ erro: "Par\xE2metro `antesDe` deve ser ISO 8601" });
       }
       const publicacoes = await storage.listarPublicacoes({
         limite,
         antesDe,
-        apenasNaoLidas: naoLidas
+        apenasNaoLidas: naoLidas,
+        busca
       });
       res.json({
         items: publicacoes,

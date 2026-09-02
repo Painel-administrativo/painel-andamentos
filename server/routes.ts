@@ -750,6 +750,7 @@ export async function registerRoutes(
       const limite = Math.min(Math.max(parseInt(String(req.query.limite ?? "50"), 10) || 50, 1), 200);
       const antesDe = req.query.antesDe ? String(req.query.antesDe) : null;
       const naoLidas = String(req.query.naoLidas ?? "").toLowerCase() === "true";
+      const busca = req.query.busca ? String(req.query.busca) : null;
 
       if (antesDe && Number.isNaN(Date.parse(antesDe))) {
         return res.status(400).json({ erro: "Parâmetro `antesDe` deve ser ISO 8601" });
@@ -759,6 +760,7 @@ export async function registerRoutes(
         limite,
         antesDe,
         apenasNaoLidas: naoLidas,
+        busca,
       });
       res.json({
         items: publicacoes,

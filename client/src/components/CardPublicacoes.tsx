@@ -19,6 +19,7 @@ import {
   Check,
   X,
   Pencil,
+  Search,
 } from "lucide-react";
 import { formatarCNJ, inferirTribunal, urlPortal } from "@/lib/cnj";
 import type { PublicacaoComProcesso } from "@shared/schema";
@@ -672,6 +673,14 @@ export function CardPublicacoes() {
   const [expandidas, setExpandidas] = useState<Set<number>>(new Set());
   const sentinelaRef = useRef<HTMLDivElement | null>(null);
 
+  // Busca por apelido/número. Debounce de 300ms pra não disparar query a cada tecla.
+  const [buscaInput, setBuscaInput] = useState("");
+  const [buscaAtiva, setBuscaAtiva] = useState("");
+  useEffect(() => {
+    const t = setTimeout(() => setBuscaAtiva(buscaInput.trim()), 300);
+    return () => clearTimeout(t);
+  }, [buscaInput]);
+
   // Estado do modal de gerar cabeçalho + editor de apelido
   const [modalCabecalhoPub, setModalCabecalhoPub] = useState<PublicacaoComProcesso | null>(null);
   const [editandoApelido, setEditandoApelido] = useState<{ processoId: number; sugestao?: string } | null>(null);
@@ -726,10 +735,11 @@ export function CardPublicacoes() {
     isLoading,
     refetch,
   } = useInfiniteQuery<RespListagem>({
-    queryKey: ["/api/publicacoes", filtro],
+    queryKey: ["/api/publicacoes", filtro, buscaAtiva],
     queryFn: async ({ pageParam }) => {
       const params = new URLSearchParams({ limite: "30" });
       if (filtro === "nao_lidas") params.set("naoLidas", "true");
+      if (buscaAtiva) params.set("busca", buscaAtiva);
       if (pageParam) params.set("antesDe", String(pageParam));
       const resp = await apiRequest("GET", `/api/publicacoes?${params.toString()}`);
       return resp.json();
@@ -889,7 +899,7 @@ export function CardPublicacoes() {
   return (
     <div className="rounded-lg border border-border bg-card">
       {/* Cabeçalho do card */}
-      <div className="flex items-center justify-between gap-3 px-4 py-3 border-b border-border">
+      <div className="flex flex-col gap-3 px-4 py-3 border-b border-border sm:flex-row sm:items-center sm:justify-between">
         <div className="flex items-center gap-2">
           <h2 className="text-sm font-semibold text-foreground">Publicações DJEN</h2>
           {naoLidasTotal > 0 && (
@@ -903,7 +913,29 @@ export function CardPublicacoes() {
           )}
         </div>
 
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
+          <div className="relative flex-1 min-w-[180px] sm:min-w-[220px]">
+            <Search className="absolute left-2 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground pointer-events-none" />
+            <input
+              type="text"
+              value={buscaInput}
+              onChange={(e) => setBuscaInput(e.target.value)}
+              placeholder="Buscar por apelido ou número"
+              className="h-8 w-full rounded-md border border-border bg-background pl-7 pr-7 text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-primary"
+              data-testid="input-buscar-publicacoes"
+            />
+            {buscaInput && (
+              <button
+                type="button"
+                onClick={() => setBuscaInput("")}
+                className="absolute right-1.5 top-1/2 -translate-y-1/2 p-0.5 text-muted-foreground hover:text-foreground"
+                data-testid="button-limpar-busca"
+                title="Limpar"
+              >
+                <X className="h-3.5 w-3.5" />
+              </button>
+            )}
+          </div>
           <Tabs value={filtro} onValueChange={(v) => setFiltro(v as Filtro)}>
             <TabsList className="h-8">
               <TabsTrigger
@@ -948,7 +980,9 @@ export function CardPublicacoes() {
       ) : publicacoes.length === 0 ? (
         <div className="p-10 text-center text-sm text-muted-foreground">
           <Inbox className="h-8 w-8 mx-auto mb-2 opacity-50" />
-          {filtro === "nao_lidas"
+          {buscaAtiva
+            ? `Nenhuma publicação para “${buscaAtiva}”.`
+            : filtro === "nao_lidas"
             ? "Nenhuma publicação não lida."
             : "Ainda não há publicações registradas. Aguardando o próximo cron do DJEN (5h Brasília)."}
         </div>

@@ -185,6 +185,7 @@ export interface IStorage {
     limite: number;
     antesDe?: string | null; // cursor: criadoEm da última linha da página anterior
     apenasNaoLidas?: boolean;
+    busca?: string | null;   // filtra por apelido ou número do processo (case-insensitive)
   }): Promise<PublicacaoComProcesso[]>;
   contarNaoLidas(): Promise<number>;
   marcarPublicacaoLida(id: number): Promise<boolean>;
@@ -417,6 +418,7 @@ export class PgStorage implements IStorage {
     limite: number;
     antesDe?: string | null;
     apenasNaoLidas?: boolean;
+    busca?: string | null;
   }): Promise<PublicacaoComProcesso[]> {
     const filtros: string[] = [];
     const args: any[] = [];
@@ -428,6 +430,22 @@ export class PgStorage implements IStorage {
     if (opts.antesDe) {
       filtros.push(`pub.criado_em < $${idx++}`);
       args.push(opts.antesDe);
+    }
+    if (opts.busca && opts.busca.trim()) {
+      // Busca por apelido OU número. Número: aceita CNJ formatado ou só dígitos.
+      const termo = opts.busca.trim();
+      const soDigitos = termo.replace(/\D/g, "");
+      filtros.push(
+        soDigitos.length > 0
+          ? `(pr.apelido ILIKE $${idx} OR pr.numero ILIKE $${idx + 1})`
+          : `pr.apelido ILIKE $${idx}`
+      );
+      args.push(`%${termo}%`);
+      idx++;
+      if (soDigitos.length > 0) {
+        args.push(`%${soDigitos}%`);
+        idx++;
+      }
     }
     args.push(opts.limite);
     const limIdx = idx;
