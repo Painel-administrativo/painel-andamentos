@@ -885,38 +885,86 @@ export async function registerRoutes(
       });
   }
 
-  async function chamarOpenAI(prompt: string, jsonMode = false): Promise<string> {
+  async function chamarOpenAI(
+    prompt: string,
+    jsonMode = false,
+    maxTokens = 1200
+  ): Promise<string> {
     const url = process.env.CUSTOM_CRED_API_OPENAI_COM_URL || "https://api.openai.com";
     const token = process.env.CUSTOM_CRED_API_OPENAI_COM_TOKEN;
     if (!token) {
-      throw new Error("OpenAI não configurada no servidor");
+      throw new Error("IA não configurada no servidor. Fale com o suporte técnico.");
     }
     const body: any = {
       model: "gpt-4o-mini",
       messages: [{ role: "user", content: prompt }],
       temperature: 0.1,
+      max_tokens: maxTokens,
     };
     if (jsonMode) {
       body.response_format = { type: "json_object" };
     }
-    const resp = await fetch(`${url}/v1/chat/completions`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${token}`,
-      },
-      body: JSON.stringify(body),
-    });
-    if (!resp.ok) {
-      const errText = await resp.text().catch(() => "");
-      throw new Error(`OpenAI HTTP ${resp.status}: ${errText.slice(0, 200)}`);
+
+    // Retry: até 3 tentativas para erros 5xx, 429 ou timeout (25s por tentativa)
+    const maxTentativas = 3;
+    const timeoutMs = 25_000;
+    let ultimoErro: Error | null = null;
+
+    for (let tentativa = 1; tentativa <= maxTentativas; tentativa++) {
+      const ctrl = new AbortController();
+      const timer = setTimeout(() => ctrl.abort(), timeoutMs);
+      try {
+        const resp = await fetch(`${url}/v1/chat/completions`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${token}`,
+          },
+          body: JSON.stringify(body),
+          signal: ctrl.signal,
+        });
+        clearTimeout(timer);
+
+        // Retry em 5xx e 429
+        if (resp.status >= 500 || resp.status === 429) {
+          const errText = await resp.text().catch(() => "");
+          ultimoErro = new Error(
+            `IA temporariamente indisponível (HTTP ${resp.status}). ${errText.slice(0, 150)}`
+          );
+          if (tentativa < maxTentativas) {
+            await new Promise((r) => setTimeout(r, 500 * tentativa)); // backoff: 500ms, 1s
+            continue;
+          }
+          throw ultimoErro;
+        }
+
+        if (!resp.ok) {
+          const errText = await resp.text().catch(() => "");
+          throw new Error(`IA rejeitou o pedido (HTTP ${resp.status}). ${errText.slice(0, 150)}`);
+        }
+
+        const data = await resp.json();
+        const content = data?.choices?.[0]?.message?.content;
+        if (!content) {
+          throw new Error("IA retornou resposta vazia");
+        }
+        return content;
+      } catch (e: any) {
+        clearTimeout(timer);
+        // Timeout / erro de rede → retry
+        const eAbortado = e?.name === "AbortError";
+        const eRede = /fetch failed|network|ECONN|ETIMEDOUT|socket/i.test(String(e?.message || ""));
+        if ((eAbortado || eRede) && tentativa < maxTentativas) {
+          ultimoErro = new Error(
+            eAbortado ? "IA demorou demais para responder" : "Falha de rede ao chamar a IA"
+          );
+          await new Promise((r) => setTimeout(r, 500 * tentativa));
+          continue;
+        }
+        throw e;
+      }
     }
-    const data = await resp.json();
-    const content = data?.choices?.[0]?.message?.content;
-    if (!content) {
-      throw new Error("OpenAI retornou resposta vazia");
-    }
-    return content;
+    throw ultimoErro || new Error("Falha ao chamar a IA após várias tentativas");
   }
 
   // 1ª chamada: extrai polos da publicação
@@ -936,7 +984,9 @@ export async function registerRoutes(
       )
         .replace(/\s+/g, " ")
         .trim();
-      const texto = textoLimpo.slice(0, 6000);
+      // Reduzido de 6000 pra 3000: prompts menores respondem mais rápido
+      // e evitam timeout do Vercel. Publicações típicas do DJEN cabem nisso.
+      const texto = textoLimpo.slice(0, 3000);
       if (!texto.trim()) {
         return res.json({ polos: [], observacao: "Publicação sem texto" });
       }
@@ -960,7 +1010,7 @@ Regras:
 
 TEXTO DA PUBLICAÇÃO:
 ${texto}`;
-      const raw = await chamarOpenAI(prompt, true);
+      const raw = await chamarOpenAI(prompt, true, 800);
       let parsed: any;
       try {
         parsed = JSON.parse(raw);
@@ -1044,7 +1094,7 @@ CLIENTE: ${clienteUpper}
 POLOS:
 ${polosStr}`;
 
-      const texto = await chamarOpenAI(prompt, false);
+      const texto = await chamarOpenAI(prompt, false, 1200);
       res.json({ cabecalho: texto.trim() });
     } catch (e: any) {
       console.error("gerar-cabecalho erro:", e);

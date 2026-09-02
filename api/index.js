@@ -34273,38 +34273,74 @@ async function registerRoutes(httpServer, app2) {
       return Object.prototype.hasOwnProperty.call(ENTIDADES_HTML, nome) ? ENTIDADES_HTML[nome] : raw;
     });
   }
-  async function chamarOpenAI(prompt, jsonMode = false) {
+  async function chamarOpenAI(prompt, jsonMode = false, maxTokens = 1200) {
     const url = process.env.CUSTOM_CRED_API_OPENAI_COM_URL || "https://api.openai.com";
     const token = process.env.CUSTOM_CRED_API_OPENAI_COM_TOKEN;
     if (!token) {
-      throw new Error("OpenAI n\xE3o configurada no servidor");
+      throw new Error("IA n\xE3o configurada no servidor. Fale com o suporte t\xE9cnico.");
     }
     const body = {
       model: "gpt-4o-mini",
       messages: [{ role: "user", content: prompt }],
-      temperature: 0.1
+      temperature: 0.1,
+      max_tokens: maxTokens
     };
     if (jsonMode) {
       body.response_format = { type: "json_object" };
     }
-    const resp = await fetch(`${url}/v1/chat/completions`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${token}`
-      },
-      body: JSON.stringify(body)
-    });
-    if (!resp.ok) {
-      const errText = await resp.text().catch(() => "");
-      throw new Error(`OpenAI HTTP ${resp.status}: ${errText.slice(0, 200)}`);
+    const maxTentativas = 3;
+    const timeoutMs = 25e3;
+    let ultimoErro = null;
+    for (let tentativa = 1; tentativa <= maxTentativas; tentativa++) {
+      const ctrl = new AbortController();
+      const timer = setTimeout(() => ctrl.abort(), timeoutMs);
+      try {
+        const resp = await fetch(`${url}/v1/chat/completions`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${token}`
+          },
+          body: JSON.stringify(body),
+          signal: ctrl.signal
+        });
+        clearTimeout(timer);
+        if (resp.status >= 500 || resp.status === 429) {
+          const errText = await resp.text().catch(() => "");
+          ultimoErro = new Error(
+            `IA temporariamente indispon\xEDvel (HTTP ${resp.status}). ${errText.slice(0, 150)}`
+          );
+          if (tentativa < maxTentativas) {
+            await new Promise((r) => setTimeout(r, 500 * tentativa));
+            continue;
+          }
+          throw ultimoErro;
+        }
+        if (!resp.ok) {
+          const errText = await resp.text().catch(() => "");
+          throw new Error(`IA rejeitou o pedido (HTTP ${resp.status}). ${errText.slice(0, 150)}`);
+        }
+        const data = await resp.json();
+        const content = data?.choices?.[0]?.message?.content;
+        if (!content) {
+          throw new Error("IA retornou resposta vazia");
+        }
+        return content;
+      } catch (e) {
+        clearTimeout(timer);
+        const eAbortado = e?.name === "AbortError";
+        const eRede = /fetch failed|network|ECONN|ETIMEDOUT|socket/i.test(String(e?.message || ""));
+        if ((eAbortado || eRede) && tentativa < maxTentativas) {
+          ultimoErro = new Error(
+            eAbortado ? "IA demorou demais para responder" : "Falha de rede ao chamar a IA"
+          );
+          await new Promise((r) => setTimeout(r, 500 * tentativa));
+          continue;
+        }
+        throw e;
+      }
     }
-    const data = await resp.json();
-    const content = data?.choices?.[0]?.message?.content;
-    if (!content) {
-      throw new Error("OpenAI retornou resposta vazia");
-    }
-    return content;
+    throw ultimoErro || new Error("Falha ao chamar a IA ap\xF3s v\xE1rias tentativas");
   }
   app2.post("/api/publicacoes/:id/extrair-partes", async (req, res) => {
     try {
@@ -34319,7 +34355,7 @@ async function registerRoutes(httpServer, app2) {
       const textoLimpo = decodificarEntidadesHtml(
         (pub.texto || "").replace(/<[^>]+>/g, " ")
       ).replace(/\s+/g, " ").trim();
-      const texto = textoLimpo.slice(0, 6e3);
+      const texto = textoLimpo.slice(0, 3e3);
       if (!texto.trim()) {
         return res.json({ polos: [], observacao: "Publica\xE7\xE3o sem texto" });
       }
@@ -34343,7 +34379,7 @@ Regras:
 
 TEXTO DA PUBLICA\xC7\xC3O:
 ${texto}`;
-      const raw = await chamarOpenAI(prompt, true);
+      const raw = await chamarOpenAI(prompt, true, 800);
       let parsed;
       try {
         parsed = JSON.parse(raw);
@@ -34414,7 +34450,7 @@ CLASSE: ${classe || "(n\xE3o informada)"}
 CLIENTE: ${clienteUpper}
 POLOS:
 ${polosStr}`;
-      const texto = await chamarOpenAI(prompt, false);
+      const texto = await chamarOpenAI(prompt, false, 1200);
       res.json({ cabecalho: texto.trim() });
     } catch (e) {
       console.error("gerar-cabecalho erro:", e);

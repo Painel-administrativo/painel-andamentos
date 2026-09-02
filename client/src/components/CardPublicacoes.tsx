@@ -151,6 +151,79 @@ interface Polo {
   nome: string;
 }
 
+// Base da API (mesma lógica do queryClient): Vercel em produção, vazio em localhost.
+const API_BASE_LOCAL =
+  typeof window !== "undefined" &&
+  (window.location.hostname === "localhost" ||
+    window.location.hostname === "127.0.0.1")
+    ? ""
+    : "https://painel-andamentos-backend.vercel.app";
+
+// Chama endpoint com timeout do lado do cliente e 1 retry silencioso.
+// Retorna JSON parseado; joga erro amigável se tudo falhar.
+async function chamarComRetry(
+  path: string,
+  body: any,
+  timeoutMs = 55_000
+): Promise<any> {
+  const url = `${API_BASE_LOCAL}${path}`;
+  const tentar = async (): Promise<any> => {
+    const ctrl = new AbortController();
+    const timer = setTimeout(() => ctrl.abort(), timeoutMs);
+    try {
+      const resp = await fetch(url, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+        signal: ctrl.signal,
+      });
+      clearTimeout(timer);
+      if (!resp.ok) {
+        const text = await resp.text().catch(() => "");
+        // 5xx / 429 devolvem erro mas com mensagem detalhada do backend
+        let msg = `HTTP ${resp.status}`;
+        try {
+          const j = JSON.parse(text);
+          if (j?.erro) msg = j.erro;
+        } catch {
+          if (text) msg = text.slice(0, 200);
+        }
+        const err: any = new Error(msg);
+        err.status = resp.status;
+        throw err;
+      }
+      return await resp.json();
+    } catch (e: any) {
+      clearTimeout(timer);
+      if (e?.name === "AbortError") {
+        const err: any = new Error("A IA demorou demais para responder");
+        err.retriable = true;
+        throw err;
+      }
+      // Falha de rede
+      if (e?.status === undefined && !e?.message?.startsWith("HTTP")) {
+        e.retriable = true;
+      }
+      // 5xx e 429 são retriáveis
+      if (e?.status >= 500 || e?.status === 429) {
+        e.retriable = true;
+      }
+      throw e;
+    }
+  };
+
+  try {
+    return await tentar();
+  } catch (e: any) {
+    if (e?.retriable) {
+      // 1 retry silencioso, com pequeno backoff
+      await new Promise((r) => setTimeout(r, 800));
+      return await tentar();
+    }
+    throw e;
+  }
+}
+
 function GerarCabecalhoModal({ pub, onFechar, onUsarComoApelido, onToast }: GerarCabecalhoModalProps) {
   const [etapa, setEtapa] = useState<"extraindo" | "escolha" | "gerando" | "pronto" | "erro">(
     "extraindo"
@@ -160,13 +233,35 @@ function GerarCabecalhoModal({ pub, onFechar, onUsarComoApelido, onToast }: Gera
   const [clienteEscolhido, setClienteEscolhido] = useState<string>("");
   const [cabecalho, setCabecalho] = useState<string>("");
   const [erro, setErro] = useState<string>("");
+  const [ultimaAcao, setUltimaAcao] = useState<"extrair" | "gerar">("extrair");
+
+  const extrair = async () => {
+    setUltimaAcao("extrair");
+    setEtapa("extraindo");
+    setErro("");
+    try {
+      const data = await chamarComRetry(
+        `/api/publicacoes/${pub.id}/extrair-partes`,
+        {}
+      );
+      setPolos(Array.isArray(data.polos) ? data.polos : []);
+      setObservacao(data.observacao || null);
+      setEtapa("escolha");
+    } catch (e: any) {
+      setErro(e?.message || String(e));
+      setEtapa("erro");
+    }
+  };
 
   useEffect(() => {
     let cancelado = false;
     (async () => {
+      setUltimaAcao("extrair");
       try {
-        const resp = await apiRequest("POST", `/api/publicacoes/${pub.id}/extrair-partes`, {});
-        const data = await resp.json();
+        const data = await chamarComRetry(
+          `/api/publicacoes/${pub.id}/extrair-partes`,
+          {}
+        );
         if (cancelado) return;
         setPolos(Array.isArray(data.polos) ? data.polos : []);
         setObservacao(data.observacao || null);
@@ -183,19 +278,28 @@ function GerarCabecalhoModal({ pub, onFechar, onUsarComoApelido, onToast }: Gera
   }, [pub.id]);
 
   const gerar = async (clienteNome: string) => {
+    setUltimaAcao("gerar");
     setClienteEscolhido(clienteNome);
     setEtapa("gerando");
+    setErro("");
     try {
-      const resp = await apiRequest("POST", `/api/publicacoes/${pub.id}/gerar-cabecalho`, {
-        clienteNome,
-        polos,
-      });
-      const data = await resp.json();
+      const data = await chamarComRetry(
+        `/api/publicacoes/${pub.id}/gerar-cabecalho`,
+        { clienteNome, polos }
+      );
       setCabecalho(data.cabecalho || "");
       setEtapa("pronto");
     } catch (e: any) {
       setErro(e?.message || String(e));
       setEtapa("erro");
+    }
+  };
+
+  const tentarDeNovo = () => {
+    if (ultimaAcao === "gerar" && clienteEscolhido) {
+      gerar(clienteEscolhido);
+    } else {
+      extrair();
     }
   };
 
@@ -315,11 +419,23 @@ function GerarCabecalhoModal({ pub, onFechar, onUsarComoApelido, onToast }: Gera
           )}
 
           {etapa === "erro" && (
-            <div className="space-y-2">
-              <p className="text-sm text-destructive">Erro: {erro}</p>
-              <Button size="sm" variant="outline" onClick={onFechar}>
-                Fechar
-              </Button>
+            <div className="space-y-3">
+              <div className="space-y-1">
+                <p className="text-sm text-destructive font-medium">
+                  Não consegui gerar dessa vez.
+                </p>
+                <p className="text-xs text-muted-foreground">
+                  {erro}. Pode ser lentidão da IA — tentar de novo costuma resolver.
+                </p>
+              </div>
+              <div className="flex items-center gap-2">
+                <Button size="sm" onClick={tentarDeNovo} data-testid="button-tentar-de-novo">
+                  Tentar de novo
+                </Button>
+                <Button size="sm" variant="outline" onClick={onFechar}>
+                  Fechar
+                </Button>
+              </div>
             </div>
           )}
         </div>
