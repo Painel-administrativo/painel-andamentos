@@ -27,15 +27,108 @@ import type { PublicacaoComProcesso } from "@shared/schema";
 type Filtro = "todas" | "nao_lidas";
 
 // ============================================================
+// Input compacto de prazo (dias + toggle úteis/corridos + data fim)
+// ============================================================
+interface InputPrazoProps {
+  pub: PublicacaoComProcesso;
+  inicio: Date;
+  feriados: Set<string>;
+  onSalvar: (dias: number | null, tipo: "uteis" | "corridos" | null) => void;
+}
+
+function InputPrazo({ pub, inicio, feriados, onSalvar }: InputPrazoProps) {
+  const [dias, setDias] = useState<string>(pub.prazoDias?.toString() ?? "");
+  const [tipo, setTipo] = useState<"uteis" | "corridos">(pub.prazoTipo ?? "uteis");
+  const timerRef = useRef<number | null>(null);
+
+  // Sincroniza quando a pub muda (refetch)
+  useEffect(() => {
+    setDias(pub.prazoDias?.toString() ?? "");
+    setTipo(pub.prazoTipo ?? "uteis");
+  }, [pub.id, pub.prazoDias, pub.prazoTipo]);
+
+  const diasNum = dias === "" ? null : parseInt(dias, 10);
+  const diasValido = diasNum !== null && !Number.isNaN(diasNum) && diasNum > 0 && diasNum <= 365;
+
+  const fim = useMemo(() => {
+    if (!diasValido || diasNum === null) return null;
+    return calcularFimPrazo(inicio, diasNum, tipo, feriados);
+  }, [diasValido, diasNum, inicio, tipo, feriados]);
+
+  // Debounce de 600ms pra salvar
+  const salvarComDebounce = (novoDias: string, novoTipo: "uteis" | "corridos") => {
+    if (timerRef.current) window.clearTimeout(timerRef.current);
+    timerRef.current = window.setTimeout(() => {
+      const n = novoDias === "" ? null : parseInt(novoDias, 10);
+      if (n === null) {
+        onSalvar(null, null); // limpa
+      } else if (!Number.isNaN(n) && n > 0 && n <= 365) {
+        onSalvar(n, novoTipo);
+      }
+    }, 600);
+  };
+
+  return (
+    <span
+      className="inline-flex items-center gap-1.5"
+      onClick={(e) => e.stopPropagation()}
+      data-testid={`prazo-input-${pub.id}`}
+    >
+      <span className="text-muted-foreground">·</span>
+      <input
+        type="number"
+        min={1}
+        max={365}
+        step={1}
+        value={dias}
+        onChange={(e) => {
+          const v = e.target.value.replace(/[^0-9]/g, "");
+          setDias(v);
+          salvarComDebounce(v, tipo);
+        }}
+        placeholder="dias"
+        className="w-14 h-6 rounded border border-border bg-background px-1.5 text-xs text-center focus:outline-none focus:ring-1 focus:ring-primary [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+        data-testid={`input-prazo-dias-${pub.id}`}
+      />
+      <button
+        type="button"
+        onClick={() => {
+          const novo = tipo === "uteis" ? "corridos" : "uteis";
+          setTipo(novo);
+          if (diasValido) salvarComDebounce(dias, novo);
+        }}
+        className="h-6 rounded border border-border bg-muted/50 px-1.5 text-[10px] font-medium uppercase tracking-wide text-muted-foreground hover:bg-muted transition-colors"
+        title={tipo === "uteis" ? "Dias úteis (clique pra mudar)" : "Dias corridos (clique pra mudar)"}
+        data-testid={`toggle-prazo-tipo-${pub.id}`}
+      >
+        {tipo === "uteis" ? "úteis" : "corridos"}
+      </button>
+      {fim && (
+        <span
+          className="font-medium text-primary"
+          title={`Termina ${diaSemanaBR(fim)}-feira em ${formatarBR(fim)}${
+            tipo === "corridos" ? " (prorrogado pra dia útil se necessário)" : ""
+          }`}
+          data-testid={`prazo-fim-${pub.id}`}
+        >
+          → termina {formatarBR(fim)} ({diaSemanaBR(fim)})
+        </span>
+      )}
+    </span>
+  );
+}
+
+// ============================================================
 // Bloco de anotação (textarea persistente + botão copiar)
 // ============================================================
 interface AnotacaoBlocoProps {
   pub: PublicacaoComProcesso;
+  feriados: Set<string>;
   onSalvar: (id: number, anotacao: string) => void;
   onToast: (t: { title: string; description?: string; variant?: "destructive" }) => void;
 }
 
-function AnotacaoBloco({ pub, onSalvar, onToast }: AnotacaoBlocoProps) {
+function AnotacaoBloco({ pub, feriados, onSalvar, onToast }: AnotacaoBlocoProps) {
   const [valor, setValor] = useState(pub.anotacao ?? "");
   const [salvando, setSalvando] = useState<"idle" | "pendente" | "salvo">("idle");
   const timerRef = useRef<number | null>(null);
@@ -71,7 +164,7 @@ function AnotacaoBloco({ pub, onSalvar, onToast }: AnotacaoBlocoProps) {
     const cnj = formatarCNJ(pub.processoNumero);
     const tipoDoc = pub.tipoDocumento || "Publicação";
     const dataDisp = formatarDataPub(pub.dataDisponibilizacao);
-    const datasPrazo = calcularDatasPrazo(pub.dataDisponibilizacao);
+    const datasPrazo = calcularDatasPrazo(pub.dataDisponibilizacao, feriados);
     const orgao = pub.nomeOrgao?.trim();
     const texto = limparTexto(pub.texto);
     const anot = (valor || "").trim();
@@ -82,7 +175,7 @@ function AnotacaoBloco({ pub, onSalvar, onToast }: AnotacaoBlocoProps) {
     else partes.push(cnj);
     partes.push(`${tipoDoc} · Disp. ${dataDisp}`);
     if (datasPrazo) {
-      partes.push(`Publicado ${datasPrazo.publicacao} · Prazo começa ${datasPrazo.inicio}`);
+      partes.push(`Publicado ${datasPrazo.publicacaoStr} · Prazo começa ${datasPrazo.inicioStr}`);
     }
     if (orgao) partes.push(orgao);
     const cabecalho = partes.join(" — ");
@@ -634,15 +727,21 @@ function formatarISOLocalBR(iso: string | null): string {
   return `${dia}/${mes}/${ano}`;
 }
 
-// Avança N dias úteis a partir de uma data (pulando sábado/domingo).
-// Não considera feriados forenses — mantido simples de propósito.
-function proximoDiaUtil(base: Date, pular: number): Date {
+// É dia útil = não é fim de semana nem feriado.
+function ehDiaUtil(d: Date, feriados: Set<string>): boolean {
+  const wd = d.getUTCDay(); // 0=domingo, 6=sábado
+  if (wd === 0 || wd === 6) return false;
+  const iso = d.toISOString().slice(0, 10);
+  return !feriados.has(iso);
+}
+
+// Avança N dias úteis a partir de uma data (pulando fim de semana e feriados).
+function proximoDiaUtil(base: Date, pular: number, feriados: Set<string>): Date {
   const d = new Date(base.getTime());
   let restam = pular;
   while (restam > 0) {
     d.setUTCDate(d.getUTCDate() + 1);
-    const wd = d.getUTCDay(); // 0=domingo, 6=sábado
-    if (wd !== 0 && wd !== 6) restam -= 1;
+    if (ehDiaUtil(d, feriados)) restam -= 1;
   }
   return d;
 }
@@ -650,18 +749,60 @@ function proximoDiaUtil(base: Date, pular: number): Date {
 // Retorna { publicacao, inicio } calculadas a partir da data de disponibilização.
 // Regra CPC art. 224 §3º: publicação = 1º dia útil seguinte à disponibilização;
 // início do prazo = 1º dia útil seguinte à publicação.
-function calcularDatasPrazo(dataDispIso: string): {
-  publicacao: string;
-  inicio: string;
+// Agora considera feriados (Fase 4).
+function calcularDatasPrazo(dataDispIso: string, feriados: Set<string>): {
+  publicacao: Date;
+  inicio: Date;
+  publicacaoStr: string;
+  inicioStr: string;
 } | null {
   const s = dataDispIso.slice(0, 10);
   const [ano, mes, dia] = s.split("-").map(Number);
   if (!ano || !mes || !dia) return null;
   // Constrói em UTC pra evitar salto de fuso.
   const disp = new Date(Date.UTC(ano, mes - 1, dia));
-  const pub = proximoDiaUtil(disp, 1);
-  const inicio = proximoDiaUtil(pub, 1);
-  return { publicacao: formatarBR(pub), inicio: formatarBR(inicio) };
+  const pub = proximoDiaUtil(disp, 1, feriados);
+  const inicio = proximoDiaUtil(pub, 1, feriados);
+  return {
+    publicacao: pub,
+    inicio,
+    publicacaoStr: formatarBR(pub),
+    inicioStr: formatarBR(inicio),
+  };
+}
+
+// Nome do dia da semana em pt-BR (ex: 'sexta').
+const DIAS_SEMANA = ["domingo", "segunda", "terça", "quarta", "quinta", "sexta", "sábado"];
+function diaSemanaBR(d: Date): string {
+  return DIAS_SEMANA[d.getUTCDay()];
+}
+
+// Calcula quando o prazo termina.
+// - dias úteis: dia 1 = 'inicio'; termina em (dias-1) dias úteis à frente.
+//   Se cair em dia não útil (impossivel com essa lógica, mas defensivo), avança.
+// - corridos: dia 1 = 'inicio'; termina em (dias-1) dias à frente.
+//   Se cair em dia não útil, prorroga pro próximo útil (CPC art. 224 §1º).
+function calcularFimPrazo(
+  inicio: Date,
+  dias: number,
+  tipo: "uteis" | "corridos",
+  feriados: Set<string>
+): Date | null {
+  if (dias <= 0) return null;
+  const d = new Date(inicio.getTime());
+  if (tipo === "uteis") {
+    // Contamos o próprio 'inicio' como dia 1. Avançamos (dias - 1) dias úteis.
+    let restam = dias - 1;
+    while (restam > 0) {
+      d.setUTCDate(d.getUTCDate() + 1);
+      if (ehDiaUtil(d, feriados)) restam -= 1;
+    }
+    return d;
+  }
+  // Corridos: soma calendário, com prorrogação se cair em não útil.
+  d.setUTCDate(d.getUTCDate() + (dias - 1));
+  while (!ehDiaUtil(d, feriados)) d.setUTCDate(d.getUTCDate() + 1);
+  return d;
 }
 
 // ============================================================
@@ -725,6 +866,60 @@ export function CardPublicacoes() {
     refetchInterval: 60_000, // a cada minuto (baratíssimo — só COUNT)
   });
   const naoLidasTotal = countData?.naoLidas ?? 0;
+
+  // -------- Feriados (para cálculo de dias úteis) --------
+  const { data: feriadosData } = useQuery<{ items: { data: string; descricao: string; ambito: string }[] }>({
+    queryKey: ["/api/feriados"],
+    staleTime: 24 * 60 * 60 * 1000, // 24h — feriados não mudam com frequência
+  });
+  const feriados = useMemo(
+    () => new Set((feriadosData?.items ?? []).map((f) => f.data)),
+    [feriadosData]
+  );
+
+  // -------- Mutation: salvar prazo --------
+  const salvarPrazoMut = useMutation({
+    mutationFn: async (vars: {
+      id: number;
+      prazoDias: number | null;
+      prazoTipo: "uteis" | "corridos" | null;
+    }) => {
+      const resp = await apiRequest("PATCH", `/api/publicacoes/${vars.id}/prazo`, {
+        prazoDias: vars.prazoDias,
+        prazoTipo: vars.prazoTipo,
+      });
+      return resp.json();
+    },
+    onMutate: async (vars) => {
+      // Update otimista: reflete imediatamente na lista.
+      queryClient.setQueriesData<{ pages: RespListagem[] }>(
+        { queryKey: ["/api/publicacoes"] },
+        (old) => {
+          if (!old) return old;
+          return {
+            ...old,
+            pages: old.pages.map((page) => ({
+              ...page,
+              items: page.items.map((p) =>
+                p.id === vars.id
+                  ? { ...p, prazoDias: vars.prazoDias, prazoTipo: vars.prazoTipo }
+                  : p
+              ),
+            })),
+          };
+        }
+      );
+    },
+    onError: (e: any) => {
+      toast({
+        title: "Não consegui salvar o prazo",
+        description: e?.message || String(e),
+        variant: "destructive",
+      });
+      // Recarrega pra desfazer o otimista
+      queryClient.invalidateQueries({ queryKey: ["/api/publicacoes"] });
+    },
+  });
 
   // -------- Listagem paginada por cursor --------
   const {
@@ -1099,7 +1294,7 @@ export function CardPublicacoes() {
                     )}
                     {/* Datas de prazo + status de leitura/comunicação */}
                     {(() => {
-                      const datas = calcularDatasPrazo(pub.dataDisponibilizacao);
+                      const datas = calcularDatasPrazo(pub.dataDisponibilizacao, feriados);
                       return (
                         <div
                           className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs"
@@ -1113,14 +1308,26 @@ export function CardPublicacoes() {
                             <>
                               <span className="text-muted-foreground">
                                 <span className="font-medium">Publicado:</span>{" "}
-                                {datas.publicacao}
+                                {datas.publicacaoStr}
                               </span>
                               <span
                                 className="font-medium text-primary"
-                                title="1º dia útil após a publicação. Não considera feriados forenses."
+                                title="1º dia útil após a publicação, considerando feriados nacionais e do RJ."
                               >
-                                Prazo começa: {datas.inicio}
+                                Prazo começa: {datas.inicioStr}
                               </span>
+                              <InputPrazo
+                                pub={pub}
+                                inicio={datas.inicio}
+                                feriados={feriados}
+                                onSalvar={(dias, tipo) =>
+                                  salvarPrazoMut.mutate({
+                                    id: pub.id,
+                                    prazoDias: dias,
+                                    prazoTipo: tipo,
+                                  })
+                                }
+                              />
                             </>
                           )}
                           {pub.lidoEm && (
@@ -1169,6 +1376,7 @@ export function CardPublicacoes() {
                     })()}
                     <AnotacaoBloco
                       pub={pub}
+                      feriados={feriados}
                       onSalvar={(id, anotacao) => {
                         // Otimista: atualiza cache local
                         queryClient.setQueriesData<{ pages: RespListagem[] }>(

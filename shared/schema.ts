@@ -98,6 +98,15 @@ export interface Publicacao {
   lidoEm: string | null; // ISO 8601, NULL quando ainda não foi lida
   informadoEm: string | null; // ISO 8601, NULL quando ainda não foi informada ao cliente
   anotacao: string | null; // Anotação livre do usuário sobre a publicação
+  prazoDias: number | null; // Número de dias do prazo (informado manualmente)
+  prazoTipo: 'uteis' | 'corridos' | null; // Tipo de contagem do prazo
+}
+
+// Feriado (usado pra ajustar 'Prazo começa' e calcular fim de prazo em dias úteis)
+export interface Feriado {
+  data: string; // YYYY-MM-DD
+  descricao: string;
+  ambito: string; // 'Nacional', 'Estadual RJ', etc.
 }
 
 // Publicação com dados do processo (para exibir no card global)

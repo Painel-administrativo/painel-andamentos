@@ -850,6 +850,54 @@ export async function registerRoutes(
   });
 
   // ============================================================
+  // Fase 4 — Feriados e prazo salvo
+  // ============================================================
+
+  // Lista todos os feriados (usados pelo cliente pra calcular dias úteis)
+  app.get("/api/feriados", async (_req, res) => {
+    try {
+      const feriados = await storage.listarFeriados();
+      res.json({ items: feriados });
+    } catch (e: any) {
+      console.error("feriados/listar erro:", e);
+      res.status(500).json({ erro: e?.message || String(e) });
+    }
+  });
+
+  // Salva o prazo (número de dias + tipo) de uma publicação
+  app.patch("/api/publicacoes/:id/prazo", async (req, res) => {
+    try {
+      const id = parseInt(req.params.id, 10);
+      if (!id || Number.isNaN(id)) {
+        return res.status(400).json({ erro: "ID inválido" });
+      }
+      const rawDias = req.body?.prazoDias;
+      const rawTipo = req.body?.prazoTipo;
+      let prazoDias: number | null = null;
+      let prazoTipo: "uteis" | "corridos" | null = null;
+
+      if (rawDias !== null && rawDias !== undefined && rawDias !== "") {
+        const n = parseInt(String(rawDias), 10);
+        if (Number.isNaN(n) || n < 0 || n > 365) {
+          return res.status(400).json({ erro: "prazoDias deve ser entre 0 e 365" });
+        }
+        prazoDias = n;
+        if (rawTipo !== "uteis" && rawTipo !== "corridos") {
+          return res.status(400).json({ erro: "prazoTipo deve ser 'uteis' ou 'corridos'" });
+        }
+        prazoTipo = rawTipo;
+      }
+
+      const ok = await storage.salvarPrazo(id, prazoDias, prazoTipo);
+      if (!ok) return res.status(404).json({ erro: "Publicação não encontrada" });
+      res.json({ prazoDias, prazoTipo });
+    } catch (e: any) {
+      console.error("publicacoes/prazo erro:", e);
+      res.status(500).json({ erro: e?.message || String(e) });
+    }
+  });
+
+  // ============================================================
   // Fase 3 — LLM para gerar cabeçalho de petição
   // ============================================================
 

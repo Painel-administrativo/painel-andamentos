@@ -100,6 +100,8 @@ interface PublicacaoRow {
   lido_em: string | null;
   informado_em: string | null;
   anotacao: string | null;
+  prazo_dias: number | null;
+  prazo_tipo: 'uteis' | 'corridos' | null;
 }
 
 interface PublicacaoComProcessoRow extends PublicacaoRow {
@@ -125,6 +127,8 @@ function mapPublicacao(r: PublicacaoRow): Publicacao {
     lidoEm: r.lido_em,
     informadoEm: r.informado_em,
     anotacao: r.anotacao,
+    prazoDias: r.prazo_dias,
+    prazoTipo: r.prazo_tipo,
   };
 }
 
@@ -179,6 +183,12 @@ export interface IStorage {
   listarPublicacoesPorProcesso(processoId: number): Promise<Publicacao[]>;
   listarPublicacoesRecentes(desdeIso: string): Promise<Publicacao[]>;
   getPublicacaoPorId(id: number): Promise<Publicacao | undefined>;
+
+  // Feriados (Fase 4)
+  listarFeriados(): Promise<{ data: string; descricao: string; ambito: string }[]>;
+
+  // Prazo salvo por publicação
+  salvarPrazo(id: number, prazoDias: number | null, prazoTipo: 'uteis' | 'corridos' | null): Promise<boolean>;
 
   // Fase 3B — Card de publicações com scroll infinito e marcação de lida
   listarPublicacoes(opts: {
@@ -374,7 +384,9 @@ export class PgStorage implements IStorage {
     const { rows } = await pool.query<PublicacaoRow>(
       `SELECT id, processo_id, hash, data_disponibilizacao,
               tipo_comunicacao, tipo_documento, nome_orgao, nome_classe,
-              texto, link, numero_comunicacao, criado_em, lido_em, informado_em, anotacao
+              raw_json->>'siglaTribunal' AS sigla_tribunal,
+              texto, link, numero_comunicacao, criado_em, lido_em, informado_em, anotacao,
+              prazo_dias, prazo_tipo
        FROM publicacoes
        WHERE id = $1
        LIMIT 1`,
@@ -389,7 +401,8 @@ export class PgStorage implements IStorage {
       `SELECT id, processo_id, hash, data_disponibilizacao,
               tipo_comunicacao, tipo_documento, nome_orgao, nome_classe,
               raw_json->>'siglaTribunal' AS sigla_tribunal,
-              texto, link, numero_comunicacao, criado_em, lido_em, informado_em, anotacao
+              texto, link, numero_comunicacao, criado_em, lido_em, informado_em, anotacao,
+              prazo_dias, prazo_tipo
        FROM publicacoes
        WHERE processo_id = $1
        ORDER BY data_disponibilizacao DESC, id DESC`,
@@ -403,7 +416,8 @@ export class PgStorage implements IStorage {
       `SELECT id, processo_id, hash, data_disponibilizacao,
               tipo_comunicacao, tipo_documento, nome_orgao, nome_classe,
               raw_json->>'siglaTribunal' AS sigla_tribunal,
-              texto, link, numero_comunicacao, criado_em, lido_em, informado_em, anotacao
+              texto, link, numero_comunicacao, criado_em, lido_em, informado_em, anotacao,
+              prazo_dias, prazo_tipo
        FROM publicacoes
        WHERE criado_em >= $1
        ORDER BY criado_em DESC, id DESC`,
@@ -457,6 +471,7 @@ export class PgStorage implements IStorage {
               pub.tipo_comunicacao, pub.tipo_documento, pub.nome_orgao, pub.nome_classe,
               pub.raw_json->>'siglaTribunal' AS sigla_tribunal,
               pub.texto, pub.link, pub.numero_comunicacao, pub.criado_em, pub.lido_em, pub.informado_em, pub.anotacao,
+              pub.prazo_dias, pub.prazo_tipo,
               pr.apelido AS processo_apelido, pr.numero AS processo_numero
        FROM publicacoes pub
        JOIN processos pr ON pr.id = pub.processo_id
@@ -543,6 +558,35 @@ export class PgStorage implements IStorage {
       ]
     );
     return mapSnapshot(rows[0]);
+  }
+
+  // ============================================================
+  // Feriados
+  // ============================================================
+  async listarFeriados(): Promise<{ data: string; descricao: string; ambito: string }[]> {
+    const { rows } = await pool.query<{ data: string; descricao: string; ambito: string }>(
+      `SELECT to_char(data, 'YYYY-MM-DD') AS data, descricao, ambito
+       FROM feriados
+       ORDER BY data`
+    );
+    return rows;
+  }
+
+  // ============================================================
+  // Prazo por publicação
+  // ============================================================
+  async salvarPrazo(
+    id: number,
+    prazoDias: number | null,
+    prazoTipo: 'uteis' | 'corridos' | null
+  ): Promise<boolean> {
+    const { rowCount } = await pool.query(
+      `UPDATE publicacoes
+         SET prazo_dias = $2, prazo_tipo = $3
+       WHERE id = $1`,
+      [id, prazoDias, prazoTipo]
+    );
+    return (rowCount ?? 0) > 0;
   }
 }
 

@@ -29171,7 +29171,9 @@ function mapPublicacao(r) {
     criadoEm: r.criado_em,
     lidoEm: r.lido_em,
     informadoEm: r.informado_em,
-    anotacao: r.anotacao
+    anotacao: r.anotacao,
+    prazoDias: r.prazo_dias,
+    prazoTipo: r.prazo_tipo
   };
 }
 function mapPublicacaoComProcesso(r) {
@@ -29349,7 +29351,9 @@ var PgStorage = class {
     const { rows } = await pool.query(
       `SELECT id, processo_id, hash, data_disponibilizacao,
               tipo_comunicacao, tipo_documento, nome_orgao, nome_classe,
-              texto, link, numero_comunicacao, criado_em, lido_em, informado_em, anotacao
+              raw_json->>'siglaTribunal' AS sigla_tribunal,
+              texto, link, numero_comunicacao, criado_em, lido_em, informado_em, anotacao,
+              prazo_dias, prazo_tipo
        FROM publicacoes
        WHERE id = $1
        LIMIT 1`,
@@ -29363,7 +29367,8 @@ var PgStorage = class {
       `SELECT id, processo_id, hash, data_disponibilizacao,
               tipo_comunicacao, tipo_documento, nome_orgao, nome_classe,
               raw_json->>'siglaTribunal' AS sigla_tribunal,
-              texto, link, numero_comunicacao, criado_em, lido_em, informado_em, anotacao
+              texto, link, numero_comunicacao, criado_em, lido_em, informado_em, anotacao,
+              prazo_dias, prazo_tipo
        FROM publicacoes
        WHERE processo_id = $1
        ORDER BY data_disponibilizacao DESC, id DESC`,
@@ -29376,7 +29381,8 @@ var PgStorage = class {
       `SELECT id, processo_id, hash, data_disponibilizacao,
               tipo_comunicacao, tipo_documento, nome_orgao, nome_classe,
               raw_json->>'siglaTribunal' AS sigla_tribunal,
-              texto, link, numero_comunicacao, criado_em, lido_em, informado_em, anotacao
+              texto, link, numero_comunicacao, criado_em, lido_em, informado_em, anotacao,
+              prazo_dias, prazo_tipo
        FROM publicacoes
        WHERE criado_em >= $1
        ORDER BY criado_em DESC, id DESC`,
@@ -29417,6 +29423,7 @@ var PgStorage = class {
               pub.tipo_comunicacao, pub.tipo_documento, pub.nome_orgao, pub.nome_classe,
               pub.raw_json->>'siglaTribunal' AS sigla_tribunal,
               pub.texto, pub.link, pub.numero_comunicacao, pub.criado_em, pub.lido_em, pub.informado_em, pub.anotacao,
+              pub.prazo_dias, pub.prazo_tipo,
               pr.apelido AS processo_apelido, pr.numero AS processo_numero
        FROM publicacoes pub
        JOIN processos pr ON pr.id = pub.processo_id
@@ -29488,6 +29495,29 @@ var PgStorage = class {
       ]
     );
     return mapSnapshot(rows[0]);
+  }
+  // ============================================================
+  // Feriados
+  // ============================================================
+  async listarFeriados() {
+    const { rows } = await pool.query(
+      `SELECT to_char(data, 'YYYY-MM-DD') AS data, descricao, ambito
+       FROM feriados
+       ORDER BY data`
+    );
+    return rows;
+  }
+  // ============================================================
+  // Prazo por publicação
+  // ============================================================
+  async salvarPrazo(id, prazoDias, prazoTipo) {
+    const { rowCount } = await pool.query(
+      `UPDATE publicacoes
+         SET prazo_dias = $2, prazo_tipo = $3
+       WHERE id = $1`,
+      [id, prazoDias, prazoTipo]
+    );
+    return (rowCount ?? 0) > 0;
   }
 };
 var storage = new PgStorage();
@@ -34190,6 +34220,44 @@ async function registerRoutes(httpServer, app2) {
       res.json(resultado);
     } catch (e) {
       console.error("publicacoes/anotacao erro:", e);
+      res.status(500).json({ erro: e?.message || String(e) });
+    }
+  });
+  app2.get("/api/feriados", async (_req, res) => {
+    try {
+      const feriados = await storage.listarFeriados();
+      res.json({ items: feriados });
+    } catch (e) {
+      console.error("feriados/listar erro:", e);
+      res.status(500).json({ erro: e?.message || String(e) });
+    }
+  });
+  app2.patch("/api/publicacoes/:id/prazo", async (req, res) => {
+    try {
+      const id = parseInt(req.params.id, 10);
+      if (!id || Number.isNaN(id)) {
+        return res.status(400).json({ erro: "ID inv\xE1lido" });
+      }
+      const rawDias = req.body?.prazoDias;
+      const rawTipo = req.body?.prazoTipo;
+      let prazoDias = null;
+      let prazoTipo = null;
+      if (rawDias !== null && rawDias !== void 0 && rawDias !== "") {
+        const n = parseInt(String(rawDias), 10);
+        if (Number.isNaN(n) || n < 0 || n > 365) {
+          return res.status(400).json({ erro: "prazoDias deve ser entre 0 e 365" });
+        }
+        prazoDias = n;
+        if (rawTipo !== "uteis" && rawTipo !== "corridos") {
+          return res.status(400).json({ erro: "prazoTipo deve ser 'uteis' ou 'corridos'" });
+        }
+        prazoTipo = rawTipo;
+      }
+      const ok = await storage.salvarPrazo(id, prazoDias, prazoTipo);
+      if (!ok) return res.status(404).json({ erro: "Publica\xE7\xE3o n\xE3o encontrada" });
+      res.json({ prazoDias, prazoTipo });
+    } catch (e) {
+      console.error("publicacoes/prazo erro:", e);
       res.status(500).json({ erro: e?.message || String(e) });
     }
   });
