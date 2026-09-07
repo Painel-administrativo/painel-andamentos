@@ -166,6 +166,7 @@ function AnotacaoBloco({ pub, feriados, onSalvar, onToast }: AnotacaoBlocoProps)
     const dataDisp = formatarDataPub(pub.dataDisponibilizacao);
     const datasPrazo = calcularDatasPrazo(pub.dataDisponibilizacao, feriados);
     const anot = (valor || "").trim();
+    const textoPub = limparTexto(pub.texto);
 
     // Carimbo do envio: DD/MM HH:MM (24h) — momento em que apertou Copiar
     const agora = new Date();
@@ -239,6 +240,13 @@ function AnotacaoBloco({ pub, feriados, onSalvar, onToast }: AnotacaoBlocoProps)
           linhas.push(`› ${l}`);
         });
       }
+    }
+
+    // Confira: texto integral da publicação em itálico (WhatsApp respeita _..._)
+    if (textoPub) {
+      linhas.push("");
+      linhas.push("*Confira:*");
+      linhas.push(`_${textoPub}_`);
     }
 
     linhas.push("");
