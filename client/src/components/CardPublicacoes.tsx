@@ -165,25 +165,86 @@ function AnotacaoBloco({ pub, feriados, onSalvar, onToast }: AnotacaoBlocoProps)
     const tipoDoc = pub.tipoDocumento || "Publicação";
     const dataDisp = formatarDataPub(pub.dataDisponibilizacao);
     const datasPrazo = calcularDatasPrazo(pub.dataDisponibilizacao, feriados);
-    const orgao = pub.nomeOrgao?.trim();
-    const texto = limparTexto(pub.texto);
     const anot = (valor || "").trim();
 
-    // Cabeçalho corrido: [Apelido · ]CNJ — tipoDoc · Disp DD/MM[ · Publicado DD/MM · Prazo começa DD/MM][ · Órgão]
-    const partes: string[] = [];
-    if (apelido) partes.push(`${apelido} · ${cnj}`);
-    else partes.push(cnj);
-    partes.push(`${tipoDoc} · Disp. ${dataDisp}`);
-    if (datasPrazo) {
-      partes.push(`Publicado ${datasPrazo.publicacaoStr} · Prazo começa ${datasPrazo.inicioStr}`);
-    }
-    if (orgao) partes.push(orgao);
-    const cabecalho = partes.join(" — ");
+    // Carimbo do envio: DD/MM HH:MM (24h) — momento em que apertou Copiar
+    const agora = new Date();
+    const pad = (n: number) => String(n).padStart(2, "0");
+    const carimbo = `${pad(agora.getDate())}/${pad(agora.getMonth() + 1)} ${pad(
+      agora.getHours()
+    )}:${pad(agora.getMinutes())}`;
 
-    // Monta corpo: cabeçalho → (linha em branco → texto)? → (linha em branco → anotação)?
-    const linhas: string[] = [cabecalho];
-    if (texto) linhas.push("", texto);
-    if (anot) linhas.push("", `Anotação: ${anot}`);
+    // Linha do processo — negrito no apelido/CNJ
+    const linhaProcesso = apelido
+      ? `*${apelido} · ${cnj}*`
+      : `*${cnj}*`;
+
+    // Linha do documento processual — sem negrito, com datas do DJEN
+    // Usa "disponibilizada" (fem., por Publicação implícita); se o tipo for masculino, cai bem também
+    const linhaDoc = datasPrazo
+      ? `${tipoDoc} · disponibilizada ${dataDisp} · publicada ${datasPrazo.publicacaoStr}`
+      : `${tipoDoc} · disponibilizada ${dataDisp}`;
+
+    // Linha do prazo — só se ele definiu
+    const linhas: string[] = [];
+    const grossa = "━━━━━━━━━━━━━━";
+    linhas.push(grossa);
+    linhas.push(`📰 *Painel · Aviso · ${carimbo}*`);
+    linhas.push(grossa);
+    linhas.push(linhaProcesso);
+    linhas.push(linhaDoc);
+
+    if (datasPrazo) {
+      if (pub.prazoDias && pub.prazoTipo) {
+        const fim = calcularFimPrazo(
+          datasPrazo.inicio,
+          pub.prazoDias,
+          pub.prazoTipo,
+          feriados
+        );
+        if (fim) {
+          const fimStr = `${pad(fim.getDate())}/${pad(fim.getMonth() + 1)}`;
+          const dow = diaSemanaBR(fim);
+          linhas.push(
+            `Prazo: ${pub.prazoDias} dias ${pub.prazoTipo} → termina ${fimStr} (${dow})`
+          );
+        } else {
+          linhas.push(`Prazo começa: ${datasPrazo.inicioStr}`);
+        }
+      } else {
+        linhas.push(`Prazo começa: ${datasPrazo.inicioStr}`);
+      }
+    }
+
+    // Anotação: primeira linha que comece com Ação:/Fazer:/Providenciar: vira "*Ação:* …"
+    // Demais linhas viram "› …" (curadoria/observações)
+    if (anot) {
+      linhas.push("");
+      const linhasAnot = anot
+        .split(/\r?\n/)
+        .map((l) => l.trim())
+        .filter((l) => l.length > 0);
+
+      const rxAcao = /^(a[çc][ãa]o|fazer|providenciar|providencia|urgente)\s*:?\s*/i;
+      let idxAcao = linhasAnot.findIndex((l) => rxAcao.test(l));
+      if (idxAcao === -1 && linhasAnot.length > 0) {
+        // Se não achou marcador explícito, primeira linha vira a ação
+        idxAcao = 0;
+      }
+      if (idxAcao >= 0) {
+        const acaoLinha = linhasAnot[idxAcao].replace(rxAcao, "").trim();
+        linhas.push(`*Ação:* ${acaoLinha}`);
+        linhasAnot.forEach((l, i) => {
+          if (i === idxAcao) return;
+          linhas.push(`› ${l}`);
+        });
+      }
+    }
+
+    linhas.push("");
+    linhas.push("🔗 andamentos-cf.pplx.app");
+    linhas.push(grossa);
+
     const bloco = linhas.join("\n");
     try {
       await navigator.clipboard.writeText(bloco);
