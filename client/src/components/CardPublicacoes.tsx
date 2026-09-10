@@ -249,8 +249,8 @@ function AnotacaoBloco({ pub, feriados, onSalvar, onToast }: AnotacaoBlocoProps)
       linhas.push(`_${textoPub}_`);
     }
 
-    linhas.push("");
-    linhas.push("🔗 andamentos-cf.pplx.app");
+    // Rodapé sem link — o painel hoje não tem escopo por advogado,
+    // então o link expõe processos de terceiros. Removido até haver autenticação/escopo.
     linhas.push(grossa);
 
     const bloco = linhas.join("\n");
