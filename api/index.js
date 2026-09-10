@@ -29101,6 +29101,9 @@ __export(source_exports, {
 module.exports = __toCommonJS(source_exports);
 var import_express = __toESM(require_express2());
 
+// server/routes.ts
+var import_node_crypto = require("node:crypto");
+
 // node_modules/pg/esm/index.mjs
 var import_lib = __toESM(require_lib4(), 1);
 var Client = import_lib.default.Client;
@@ -29346,6 +29349,30 @@ var PgStorage = class {
       else ignoradas++;
     }
     return { inseridas, ignoradas };
+  }
+  // Publicação + apelido/número do processo, tudo em uma query. Usado pela página pública.
+  async getPublicacaoPublicaPorId(id) {
+    const { rows } = await pool.query(
+      `SELECT p.id, p.processo_id, p.hash, p.data_disponibilizacao,
+              p.tipo_comunicacao, p.tipo_documento, p.nome_orgao, p.nome_classe,
+              p.raw_json->>'siglaTribunal' AS sigla_tribunal,
+              p.texto, p.link, p.numero_comunicacao, p.criado_em, p.lido_em, p.informado_em, p.anotacao,
+              p.prazo_dias, p.prazo_tipo,
+              pr.apelido AS processo_apelido, pr.numero AS processo_numero
+         FROM publicacoes p
+         JOIN processos pr ON pr.id = p.processo_id
+        WHERE p.id = $1
+        LIMIT 1`,
+      [id]
+    );
+    const row = rows[0];
+    if (!row) return void 0;
+    const base = mapPublicacao(row);
+    return {
+      ...base,
+      processoApelido: row.processo_apelido,
+      processoNumero: row.processo_numero
+    };
   }
   async getPublicacaoPorId(id) {
     const { rows } = await pool.query(
@@ -33573,6 +33600,21 @@ var insertProcessoInputSchema = external_exports.object({
 });
 
 // server/routes.ts
+var PUBLIC_TOKEN_SECRET = process.env.PUBLIC_TOKEN_SECRET || "painel-andamentos-cf-2026-token-secret-v1";
+function tokenPublico(id) {
+  const mac = (0, import_node_crypto.createHmac)("sha256", PUBLIC_TOKEN_SECRET).update(`pub:${id}`).digest();
+  return mac.subarray(0, 6).toString("base64").replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+}
+function validarToken(id, token) {
+  if (!token || token.length < 4) return false;
+  const esperado = tokenPublico(id);
+  if (esperado.length !== token.length) return false;
+  let diff = 0;
+  for (let i = 0; i < esperado.length; i++) {
+    diff |= esperado.charCodeAt(i) ^ token.charCodeAt(i);
+  }
+  return diff === 0;
+}
 var DATAJUD_APIKEY = "APIKey cDZHYzlZa0JadVREZDJCendQbXY6SkJlTzNjLV9TRENyQk1RdnFKZGRQdw==";
 function endpointFor(tribunal) {
   const map = {
@@ -34109,6 +34151,34 @@ async function registerRoutes(httpServer, app2) {
       res.status(500).json({ erro: e?.message || String(e) });
     }
   });
+  app2.get("/api/publicacoes/:id/publica", async (req, res) => {
+    try {
+      const id = parseInt(req.params.id, 10);
+      const token = String(req.query.token ?? "");
+      if (!Number.isFinite(id) || id <= 0 || !validarToken(id, token)) {
+        return res.status(404).json({ erro: "N\xE3o encontrado" });
+      }
+      const pub = await storage.getPublicacaoPublicaPorId(id);
+      if (!pub) {
+        return res.status(404).json({ erro: "N\xE3o encontrado" });
+      }
+      res.json({
+        id: pub.id,
+        processoApelido: pub.processoApelido,
+        processoNumero: pub.processoNumero,
+        tipoDocumento: pub.tipoDocumento,
+        nomeOrgao: pub.nomeOrgao,
+        dataDisponibilizacao: pub.dataDisponibilizacao,
+        texto: pub.texto,
+        anotacao: pub.anotacao,
+        prazoDias: pub.prazoDias,
+        prazoTipo: pub.prazoTipo
+      });
+    } catch (e) {
+      console.error("publicacoes/:id/publica erro:", e);
+      res.status(500).json({ erro: e?.message || String(e) });
+    }
+  });
   app2.get("/api/publicacoes/processo/:id", async (req, res) => {
     try {
       const id = parseInt(req.params.id, 10);
@@ -34150,8 +34220,12 @@ async function registerRoutes(httpServer, app2) {
         apenasNaoLidas: naoLidas,
         busca
       });
+      const itemsComToken = publicacoes.map((p) => ({
+        ...p,
+        tokenPublico: tokenPublico(p.id)
+      }));
       res.json({
-        items: publicacoes,
+        items: itemsComToken,
         proximoCursor: publicacoes.length === limite ? publicacoes[publicacoes.length - 1].criadoEm : null
       });
     } catch (e) {
