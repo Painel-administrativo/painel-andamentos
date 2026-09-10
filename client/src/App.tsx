@@ -7,12 +7,14 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 import { ThemeProvider } from "@/lib/theme";
 import NotFound from "@/pages/not-found";
 import Home from "@/pages/home";
+import PublicacaoPublica from "@/pages/publicacao-publica";
 import { InstalarPWA } from "@/components/InstalarPWA";
 
 function AppRouter() {
   return (
     <Switch>
       <Route path="/" component={Home} />
+      <Route path="/pub/:idToken" component={PublicacaoPublica} />
       <Route component={NotFound} />
     </Switch>
   );

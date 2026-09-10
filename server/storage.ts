@@ -183,6 +183,12 @@ export interface IStorage {
   listarPublicacoesPorProcesso(processoId: number): Promise<Publicacao[]>;
   listarPublicacoesRecentes(desdeIso: string): Promise<Publicacao[]>;
   getPublicacaoPorId(id: number): Promise<Publicacao | undefined>;
+  getPublicacaoPublicaPorId(
+    id: number
+  ): Promise<
+    | (Publicacao & { processoApelido: string | null; processoNumero: string })
+    | undefined
+  >;
 
   // Feriados (Fase 4)
   listarFeriados(): Promise<{ data: string; descricao: string; ambito: string }[]>;
@@ -378,6 +384,36 @@ export class PgStorage implements IStorage {
       else ignoradas++;
     }
     return { inseridas, ignoradas };
+  }
+
+  // Publicação + apelido/número do processo, tudo em uma query. Usado pela página pública.
+  async getPublicacaoPublicaPorId(id: number): Promise<
+    | (Publicacao & { processoApelido: string | null; processoNumero: string })
+    | undefined
+  > {
+    const { rows } = await pool.query<
+      PublicacaoRow & { processo_apelido: string | null; processo_numero: string }
+    >(
+      `SELECT p.id, p.processo_id, p.hash, p.data_disponibilizacao,
+              p.tipo_comunicacao, p.tipo_documento, p.nome_orgao, p.nome_classe,
+              p.raw_json->>'siglaTribunal' AS sigla_tribunal,
+              p.texto, p.link, p.numero_comunicacao, p.criado_em, p.lido_em, p.informado_em, p.anotacao,
+              p.prazo_dias, p.prazo_tipo,
+              pr.apelido AS processo_apelido, pr.numero AS processo_numero
+         FROM publicacoes p
+         JOIN processos pr ON pr.id = p.processo_id
+        WHERE p.id = $1
+        LIMIT 1`,
+      [id]
+    );
+    const row = rows[0];
+    if (!row) return undefined;
+    const base = mapPublicacao(row);
+    return {
+      ...base,
+      processoApelido: row.processo_apelido,
+      processoNumero: row.processo_numero,
+    };
   }
 
   async getPublicacaoPorId(id: number): Promise<Publicacao | undefined> {

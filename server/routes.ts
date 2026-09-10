@@ -1,9 +1,42 @@
 import type { Express } from "express";
 import { createServer } from "node:http";
 import type { Server } from "node:http";
+import { createHmac } from "node:crypto";
 import { storage, pool } from "./storage";
 import { insertProcessoInputSchema, type DatajudSource, TRIBUNAIS } from "@shared/schema";
 import { z } from "zod";
+
+// Segredo para tokens opacos de publicações públicas (usadas em links WhatsApp).
+// Preferível via env var; fallback constante só pra não quebrar dev local.
+const PUBLIC_TOKEN_SECRET =
+  process.env.PUBLIC_TOKEN_SECRET ||
+  "painel-andamentos-cf-2026-token-secret-v1";
+
+// Gera token de 8 chars (base64url dos primeiros 6 bytes do HMAC).
+// Não dá pra adivinhar sem o segredo.
+function tokenPublico(id: number): string {
+  const mac = createHmac("sha256", PUBLIC_TOKEN_SECRET)
+    .update(`pub:${id}`)
+    .digest();
+  return mac
+    .subarray(0, 6)
+    .toString("base64")
+    .replace(/\+/g, "-")
+    .replace(/\//g, "_")
+    .replace(/=+$/, "");
+}
+
+function validarToken(id: number, token: string): boolean {
+  if (!token || token.length < 4) return false;
+  const esperado = tokenPublico(id);
+  // Comparação em tempo constante evita timing attack
+  if (esperado.length !== token.length) return false;
+  let diff = 0;
+  for (let i = 0; i < esperado.length; i++) {
+    diff |= esperado.charCodeAt(i) ^ token.charCodeAt(i);
+  }
+  return diff === 0;
+}
 
 const DATAJUD_APIKEY =
   "APIKey cDZHYzlZa0JadVREZDJCendQbXY6SkJlTzNjLV9TRENyQk1RdnFKZGRQdw==";
@@ -708,6 +741,40 @@ export async function registerRoutes(
     }
   });
 
+  // === Publicação pública (isolada) para link do WhatsApp ===
+  // Uso: GET /api/publicacoes/:id/publica?token=xxx
+  // Devolve APENAS aquela publicação (com apelido e número do processo) se o token bater.
+  // Não expõe nada mais do sistema.
+  app.get("/api/publicacoes/:id/publica", async (req, res) => {
+    try {
+      const id = parseInt(req.params.id, 10);
+      const token = String(req.query.token ?? "");
+      if (!Number.isFinite(id) || id <= 0 || !validarToken(id, token)) {
+        return res.status(404).json({ erro: "Não encontrado" });
+      }
+      const pub = await storage.getPublicacaoPublicaPorId(id);
+      if (!pub) {
+        return res.status(404).json({ erro: "Não encontrado" });
+      }
+      // Devolve apenas os campos necessários pra página de leitura
+      res.json({
+        id: pub.id,
+        processoApelido: pub.processoApelido,
+        processoNumero: pub.processoNumero,
+        tipoDocumento: pub.tipoDocumento,
+        nomeOrgao: pub.nomeOrgao,
+        dataDisponibilizacao: pub.dataDisponibilizacao,
+        texto: pub.texto,
+        anotacao: pub.anotacao,
+        prazoDias: pub.prazoDias,
+        prazoTipo: pub.prazoTipo,
+      });
+    } catch (e: any) {
+      console.error("publicacoes/:id/publica erro:", e);
+      res.status(500).json({ erro: e?.message || String(e) });
+    }
+  });
+
   // === Listar publicações de um processo (usado pelo frontend futuro) ===
   app.get("/api/publicacoes/processo/:id", async (req, res) => {
     try {
@@ -762,8 +829,13 @@ export async function registerRoutes(
         apenasNaoLidas: naoLidas,
         busca,
       });
+      // Anexa token público opaco em cada item para o frontend montar URL segura
+      const itemsComToken = publicacoes.map((p: any) => ({
+        ...p,
+        tokenPublico: tokenPublico(p.id),
+      }));
       res.json({
-        items: publicacoes,
+        items: itemsComToken,
         proximoCursor: publicacoes.length === limite ? publicacoes[publicacoes.length - 1].criadoEm : null,
       });
     } catch (e: any) {

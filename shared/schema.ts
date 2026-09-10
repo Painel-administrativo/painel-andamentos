@@ -100,6 +100,7 @@ export interface Publicacao {
   anotacao: string | null; // Anotação livre do usuário sobre a publicação
   prazoDias: number | null; // Número de dias do prazo (informado manualmente)
   prazoTipo: 'uteis' | 'corridos' | null; // Tipo de contagem do prazo
+  tokenPublico?: string; // Token opaco anexado pelo backend em GET /api/publicacoes (link WhatsApp)
 }
 
 // Feriado (usado pra ajustar 'Prazo começa' e calcular fim de prazo em dias úteis)
