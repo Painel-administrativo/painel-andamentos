@@ -9,6 +9,15 @@ const API_BASE =
     ? ""
     : "https://painel-andamentos-backend.vercel.app";
 
+// Chave da API vai em todo request. Configurada em VITE_API_KEY no build.
+const API_KEY = import.meta.env.VITE_API_KEY || "";
+
+function authHeaders(extra?: Record<string, string>): Record<string, string> {
+  const h: Record<string, string> = { ...(extra || {}) };
+  if (API_KEY) h["x-api-key"] = API_KEY;
+  return h;
+}
+
 async function throwIfResNotOk(res: Response) {
   if (!res.ok) {
     const text = (await res.text()) || res.statusText;
@@ -23,7 +32,7 @@ export async function apiRequest(
 ): Promise<Response> {
   const res = await fetch(`${API_BASE}${url}`, {
     method,
-    headers: data ? { "Content-Type": "application/json" } : {},
+    headers: authHeaders(data ? { "Content-Type": "application/json" } : undefined),
     body: data ? JSON.stringify(data) : undefined,
   });
 
@@ -37,7 +46,9 @@ export const getQueryFn: <T>(options: {
 }) => QueryFunction<T> =
   ({ on401: unauthorizedBehavior }) =>
   async ({ queryKey }) => {
-    const res = await fetch(`${API_BASE}${queryKey.join("/")}`);
+    const res = await fetch(`${API_BASE}${queryKey.join("/")}`, {
+      headers: authHeaders(),
+    });
 
     if (unauthorizedBehavior === "returnNull" && res.status === 401) {
       return null;

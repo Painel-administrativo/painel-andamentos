@@ -249,12 +249,10 @@ function AnotacaoBloco({ pub, feriados, onSalvar, onToast }: AnotacaoBlocoProps)
       linhas.push(`_${textoPub}_`);
     }
 
-    // Link público com token opaco: abre APENAS esta publicação, isolada.
-    // Token vem do backend em GET /api/publicacoes; sem ele, o link fica omitido.
-    if (pub.tokenPublico) {
-      linhas.push("");
-      linhas.push(`🔗 andamentos-cf.pplx.app/#/pub/${pub.id}-${pub.tokenPublico}`);
-    }
+    // Link do WhatsApp removido em 16/09/2026: mesmo com token opaco, expõe
+    // o domínio do backend, que estava sem autenticação. A proteção passou
+    // a ser API key + rota /publica com token; o link fica disponível apenas
+    // dentro do painel, para curadoria interna, e não vai mais para o cliente.
     linhas.push(grossa);
 
     const bloco = linhas.join("\n");
@@ -338,9 +336,12 @@ async function chamarComRetry(
     const ctrl = new AbortController();
     const timer = setTimeout(() => ctrl.abort(), timeoutMs);
     try {
+      const apiKey = import.meta.env.VITE_API_KEY || "";
+      const headers: Record<string, string> = { "Content-Type": "application/json" };
+      if (apiKey) headers["x-api-key"] = apiKey;
       const resp = await fetch(url, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers,
         body: JSON.stringify(body),
         signal: ctrl.signal,
       });

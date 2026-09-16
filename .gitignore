@@ -37,3 +37,4 @@ Thumbs.db
 # Vercel
 .vercel
 api-build/
+.api_key_temp

@@ -33683,6 +33683,17 @@ async function mapConcurrent(items, limit, fn) {
   return results;
 }
 async function registerRoutes(httpServer, app2) {
+  const API_KEY = process.env.API_KEY;
+  app2.use("/api", (req, res, next) => {
+    if (req.method === "GET") {
+      if (/^\/publicacoes\/\d+\/publica$/.test(req.path)) return next();
+      if (req.path === "/feriados") return next();
+    }
+    if (!API_KEY) return next();
+    const chave = req.header("x-api-key");
+    if (chave === API_KEY) return next();
+    return res.status(401).json({ erro: "N\xE3o autorizado" });
+  });
   app2.get("/api/processos", async (_req, res) => {
     const lista = await storage.listProcessos();
     res.json(lista);

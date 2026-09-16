@@ -132,6 +132,25 @@ export async function registerRoutes(
   httpServer: Server,
   app: Express
 ): Promise<Server> {
+  // ===== MIDDLEWARE DE AUTENTICAÇÃO =====
+  // Todas as rotas /api/* exigem X-Api-Key = process.env.API_KEY.
+  // ÚNICA exceção: GET /api/publicacoes/:id/publica?token=xxx (link WhatsApp para clientes)
+  const API_KEY = process.env.API_KEY;
+  app.use("/api", (req, res, next) => {
+    // Rotas públicas (chamadas pela página publica-publica sem login):
+    // 1. GET /publicacoes/:id/publica  → validação de token opaco no handler
+    // 2. GET /feriados                  → lista de feriados (sem PII)
+    if (req.method === "GET") {
+      if (/^\/publicacoes\/\d+\/publica$/.test(req.path)) return next();
+      if (req.path === "/feriados") return next();
+    }
+    // Sem API_KEY configurada = ambiente dev local, deixa passar
+    if (!API_KEY) return next();
+    const chave = req.header("x-api-key");
+    if (chave === API_KEY) return next();
+    return res.status(401).json({ erro: "Não autorizado" });
+  });
+
   // Lista processos + último snapshot
   app.get("/api/processos", async (_req, res) => {
     const lista = await storage.listProcessos();
