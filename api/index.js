@@ -33692,7 +33692,16 @@ async function registerRoutes(httpServer, app2) {
     if (!API_KEY) return next();
     const chave = req.header("x-api-key");
     if (chave === API_KEY) return next();
-    return res.status(401).json({ erro: "N\xE3o autorizado" });
+    return res.status(401).json({
+      erro: "N\xE3o autorizado",
+      debug: {
+        api_key_set: !!API_KEY,
+        api_key_len: API_KEY?.length ?? 0,
+        chave_recebida_len: chave?.length ?? 0,
+        chave_recebida_present: !!chave,
+        lengths_match: (chave?.length ?? 0) === (API_KEY?.length ?? 0)
+      }
+    });
   });
   app2.get("/api/processos", async (_req, res) => {
     const lista = await storage.listProcessos();

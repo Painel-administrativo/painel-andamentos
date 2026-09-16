@@ -148,7 +148,16 @@ export async function registerRoutes(
     if (!API_KEY) return next();
     const chave = req.header("x-api-key");
     if (chave === API_KEY) return next();
-    return res.status(401).json({ erro: "Não autorizado" });
+    return res.status(401).json({
+      erro: "Não autorizado",
+      debug: {
+        api_key_set: !!API_KEY,
+        api_key_len: API_KEY?.length ?? 0,
+        chave_recebida_len: chave?.length ?? 0,
+        chave_recebida_present: !!chave,
+        lengths_match: (chave?.length ?? 0) === (API_KEY?.length ?? 0),
+      },
+    });
   });
 
   // Lista processos + último snapshot
