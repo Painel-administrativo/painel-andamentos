@@ -12,7 +12,7 @@ app.use(express.urlencoded({ extended: false }));
 app.use((_req, res, next) => {
   res.header("Access-Control-Allow-Origin", "*");
   res.header("Access-Control-Allow-Methods", "GET,POST,PUT,PATCH,DELETE,OPTIONS");
-  res.header("Access-Control-Allow-Headers", "Content-Type, Authorization");
+  res.header("Access-Control-Allow-Headers", "Content-Type, Authorization, X-Api-Key");
   if (_req.method === "OPTIONS") {
     res.status(204).end();
     return;
