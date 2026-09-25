@@ -317,12 +317,7 @@ interface Polo {
 }
 
 // Base da API (mesma lógica do queryClient): Vercel em produção, vazio em localhost.
-const API_BASE_LOCAL =
-  typeof window !== "undefined" &&
-  (window.location.hostname === "localhost" ||
-    window.location.hostname === "127.0.0.1")
-    ? ""
-    : "https://painel-andamentos-backend.vercel.app";
+const API_BASE_LOCAL = "";
 
 // Chama endpoint com timeout do lado do cliente e 1 retry silencioso.
 // Retorna JSON parseado; joga erro amigável se tudo falhar.
@@ -336,16 +331,17 @@ async function chamarComRetry(
     const ctrl = new AbortController();
     const timer = setTimeout(() => ctrl.abort(), timeoutMs);
     try {
-      const apiKey = import.meta.env.VITE_API_KEY || "";
       const headers: Record<string, string> = { "Content-Type": "application/json" };
-      if (apiKey) headers["x-api-key"] = apiKey;
       const resp = await fetch(url, {
         method: "POST",
+        credentials: "same-origin",
+        cache: "no-store",
         headers,
         body: JSON.stringify(body),
         signal: ctrl.signal,
       });
       clearTimeout(timer);
+      if (resp.status === 401) window.dispatchEvent(new Event("auth-expired"));
       if (!resp.ok) {
         const text = await resp.text().catch(() => "");
         // 5xx / 429 devolvem erro mas com mensagem detalhada do backend

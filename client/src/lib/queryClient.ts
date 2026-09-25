@@ -1,74 +1,38 @@
 import { QueryClient, QueryFunction } from "@tanstack/react-query";
 
-// Backend migrado para Vercel (pplx.app tinha instabilidade constante).
-// Em produção sempre usa a URL do Vercel; em dev local usa proxy.
-const API_BASE =
-  typeof window !== "undefined" &&
-  (window.location.hostname === "localhost" ||
-    window.location.hostname === "127.0.0.1")
-    ? ""
-    : "https://painel-andamentos-backend.vercel.app";
-
-// Chave da API vai em todo request. Configurada em VITE_API_KEY no build.
-const API_KEY = import.meta.env.VITE_API_KEY || "";
-
-function authHeaders(extra?: Record<string, string>): Record<string, string> {
-  const h: Record<string, string> = { ...(extra || {}) };
-  if (API_KEY) h["x-api-key"] = API_KEY;
-  return h;
-}
-
-async function throwIfResNotOk(res: Response) {
+// Same-origin cookies only. No API key or Supabase token is sent to JavaScript.
+export const API_BASE = "";
+export async function checkResponse(res: Response) {
+  if (res.status === 401) window.dispatchEvent(new Event("auth-expired"));
   if (!res.ok) {
-    const text = (await res.text()) || res.statusText;
-    throw new Error(`${res.status}: ${text}`);
+    const body = await res.json().catch(() => ({}));
+    throw new Error(body.error || body.erro || body.message || `Falha na solicitação (${res.status}).`);
   }
 }
-
-export async function apiRequest(
-  method: string,
-  url: string,
-  data?: unknown | undefined,
-): Promise<Response> {
+export async function apiRequest(method: string, url: string, data?: unknown): Promise<Response> {
+  const isWrite = method !== "GET" && method !== "HEAD";
   const res = await fetch(`${API_BASE}${url}`, {
-    method,
-    headers: authHeaders(data ? { "Content-Type": "application/json" } : undefined),
-    body: data ? JSON.stringify(data) : undefined,
+    method, credentials: "same-origin", cache: "no-store",
+    headers: isWrite ? { "Content-Type": "application/json" } : undefined,
+    body: isWrite ? JSON.stringify(data ?? {}) : undefined,
   });
-
-  await throwIfResNotOk(res);
+  await checkResponse(res);
   return res;
 }
-
 type UnauthorizedBehavior = "returnNull" | "throw";
-export const getQueryFn: <T>(options: {
-  on401: UnauthorizedBehavior;
-}) => QueryFunction<T> =
-  ({ on401: unauthorizedBehavior }) =>
-  async ({ queryKey }) => {
+export const getQueryFn: <T>(options: { on401: UnauthorizedBehavior }) => QueryFunction<T> =
+  ({ on401 }) => async ({ queryKey, signal }) => {
     const res = await fetch(`${API_BASE}${queryKey.join("/")}`, {
-      headers: authHeaders(),
+      credentials: "same-origin", cache: "no-store", signal,
     });
-
-    if (unauthorizedBehavior === "returnNull" && res.status === 401) {
-      return null;
-    }
-
-    await throwIfResNotOk(res);
-    return await res.json();
+    if (res.status === 401 && on401 === "returnNull") return null;
+    await checkResponse(res);
+    return res.json();
   };
-
 export const queryClient = new QueryClient({
   defaultOptions: {
-    queries: {
-      queryFn: getQueryFn({ on401: "throw" }),
-      refetchInterval: false,
-      refetchOnWindowFocus: false,
-      staleTime: Infinity,
-      retry: false,
-    },
-    mutations: {
-      retry: false,
-    },
+    queries: { queryFn: getQueryFn({ on401: "throw" }), refetchInterval: false,
+      refetchOnWindowFocus: false, staleTime: Infinity, retry: false },
+    mutations: { retry: false },
   },
 });

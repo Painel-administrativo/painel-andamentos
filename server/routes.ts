@@ -5,6 +5,7 @@ import { createHmac } from "node:crypto";
 import { storage, pool } from "./storage";
 import { insertProcessoInputSchema, type DatajudSource, TRIBUNAIS } from "@shared/schema";
 import { z } from "zod";
+import { createProductionAuth } from "./auth";
 
 // Segredo para tokens opacos de publicações públicas (usadas em links WhatsApp).
 // Preferível via env var; fallback constante só pra não quebrar dev local.
@@ -132,24 +133,35 @@ export async function registerRoutes(
   httpServer: Server,
   app: Express
 ): Promise<Server> {
-  // ===== MIDDLEWARE DE AUTENTICAÇÃO =====
-  // Todas as rotas /api/* exigem X-Api-Key = process.env.API_KEY.
-  // ÚNICA exceção: GET /api/publicacoes/:id/publica?token=xxx (link WhatsApp para clientes)
-  const API_KEY = process.env.API_KEY;
-  app.use("/api", (req, res, next) => {
-    // Rotas públicas (chamadas pela página publica-publica sem login):
-    // 1. GET /publicacoes/:id/publica  → validação de token opaco no handler
-    // 2. GET /feriados                  → lista de feriados (sem PII)
-    if (req.method === "GET") {
-      if (/^\/publicacoes\/\d+\/publica$/.test(req.path)) return next();
-      if (req.path === "/feriados") return next();
-    }
-    // Sem API_KEY configurada = ambiente dev local, deixa passar
-    if (!API_KEY) return next();
-    const chave = req.header("x-api-key");
-    if (chave === API_KEY) return next();
-    return res.status(401).json({ erro: "Não autorizado" });
-  });
+  // Auth is always fail-closed. Old public publication URLs are protected too.
+  app.use(createProductionAuth({
+    url: process.env.SUPABASE_URL,
+    key: process.env.SUPABASE_ANON_KEY,
+    origin: process.env.AUTH_ORIGIN,
+    secret: process.env.AUTH_SESSION_SECRET,
+    automationKey: process.env.AUTH_AUTOMATION_TOKEN,
+    adminEmail: process.env.AUTH_ADMIN_EMAIL || "",
+    adminId: process.env.AUTH_ADMIN_ID,
+  }, {
+    async create(hash, expiresAt) {
+      await pool.query("DELETE FROM public.painel_auth_sessions WHERE expires_at <= now()");
+      await pool.query("INSERT INTO public.painel_auth_sessions (id_hash,expires_at) VALUES ($1,$2)", [hash, new Date(expiresAt)]);
+    },
+    async active(hash) {
+      const r = await pool.query("SELECT 1 FROM public.painel_auth_sessions WHERE id_hash=$1 AND expires_at>now()", [hash]);
+      return (r.rowCount || 0) > 0;
+    },
+    async remove(hash) { await pool.query("DELETE FROM public.painel_auth_sessions WHERE id_hash=$1", [hash]); },
+    async allowLogin(kind) {
+      // Shared across serverless workers; no caller-controlled IP can bypass the limit.
+      await pool.query("DELETE FROM public.painel_auth_rate_limits WHERE bucket < date_trunc('minute', now()) - interval '1 hour'");
+      const result = await pool.query(
+        "INSERT INTO public.painel_auth_rate_limits (kind,bucket,attempts) VALUES ($1,date_trunc('minute', now()),1) ON CONFLICT (kind,bucket) DO UPDATE SET attempts = painel_auth_rate_limits.attempts+1 RETURNING attempts",
+        [kind],
+      );
+      return result.rows[0].attempts <= (kind === "password" ? 15 : 30);
+    },
+  }));
 
   // Lista processos + último snapshot
   app.get("/api/processos", async (_req, res) => {
@@ -611,7 +623,7 @@ export async function registerRoutes(
         return res.status(400).json({ erro: "Payload inválido", detalhes: e.issues });
       }
       console.error("publicacoes/testar erro:", e);
-      res.status(500).json({ erro: e?.message || String(e) });
+      res.status(500).json({ erro: "Falha temporária no servidor. Tente novamente." });
     }
   });
 
@@ -756,7 +768,7 @@ export async function registerRoutes(
       });
     } catch (e: any) {
       console.error("publicacoes/atualizar erro geral:", e);
-      res.status(500).json({ erro: e?.message || String(e) });
+      res.status(500).json({ erro: "Falha temporária no servidor. Tente novamente." });
     }
   });
 
@@ -790,7 +802,7 @@ export async function registerRoutes(
       });
     } catch (e: any) {
       console.error("publicacoes/:id/publica erro:", e);
-      res.status(500).json({ erro: e?.message || String(e) });
+      res.status(500).json({ erro: "Falha temporária no servidor. Tente novamente." });
     }
   });
 
@@ -805,7 +817,7 @@ export async function registerRoutes(
       res.json(publicacoes);
     } catch (e: any) {
       console.error("publicacoes/processo/:id erro:", e);
-      res.status(500).json({ erro: e?.message || String(e) });
+      res.status(500).json({ erro: "Falha temporária no servidor. Tente novamente." });
     }
   });
 
@@ -820,7 +832,7 @@ export async function registerRoutes(
       res.json(publicacoes);
     } catch (e: any) {
       console.error("publicacoes/recentes erro:", e);
-      res.status(500).json({ erro: e?.message || String(e) });
+      res.status(500).json({ erro: "Falha temporária no servidor. Tente novamente." });
     }
   });
 
@@ -859,7 +871,7 @@ export async function registerRoutes(
       });
     } catch (e: any) {
       console.error("publicacoes (listar) erro:", e);
-      res.status(500).json({ erro: e?.message || String(e) });
+      res.status(500).json({ erro: "Falha temporária no servidor. Tente novamente." });
     }
   });
 
@@ -870,7 +882,7 @@ export async function registerRoutes(
       res.json({ naoLidas: n });
     } catch (e: any) {
       console.error("publicacoes/nao-lidas-count erro:", e);
-      res.status(500).json({ erro: e?.message || String(e) });
+      res.status(500).json({ erro: "Falha temporária no servidor. Tente novamente." });
     }
   });
 
@@ -883,7 +895,7 @@ export async function registerRoutes(
       res.json({ marcadas });
     } catch (e: any) {
       console.error("publicacoes/marcar-todas-lidas erro:", e);
-      res.status(500).json({ erro: e?.message || String(e) });
+      res.status(500).json({ erro: "Falha temporária no servidor. Tente novamente." });
     }
   });
 
@@ -898,7 +910,7 @@ export async function registerRoutes(
       res.json({ marcada });
     } catch (e: any) {
       console.error("publicacoes/marcar-lida erro:", e);
-      res.status(500).json({ erro: e?.message || String(e) });
+      res.status(500).json({ erro: "Falha temporária no servidor. Tente novamente." });
     }
   });
 
@@ -916,7 +928,7 @@ export async function registerRoutes(
       res.json(resultado);
     } catch (e: any) {
       console.error("publicacoes/alternar-informada erro:", e);
-      res.status(500).json({ erro: e?.message || String(e) });
+      res.status(500).json({ erro: "Falha temporária no servidor. Tente novamente." });
     }
   });
 
@@ -936,7 +948,7 @@ export async function registerRoutes(
       res.json(resultado);
     } catch (e: any) {
       console.error("publicacoes/anotacao erro:", e);
-      res.status(500).json({ erro: e?.message || String(e) });
+      res.status(500).json({ erro: "Falha temporária no servidor. Tente novamente." });
     }
   });
 
@@ -951,7 +963,7 @@ export async function registerRoutes(
       res.json({ items: feriados });
     } catch (e: any) {
       console.error("feriados/listar erro:", e);
-      res.status(500).json({ erro: e?.message || String(e) });
+      res.status(500).json({ erro: "Falha temporária no servidor. Tente novamente." });
     }
   });
 
@@ -984,7 +996,7 @@ export async function registerRoutes(
       res.json({ prazoDias, prazoTipo });
     } catch (e: any) {
       console.error("publicacoes/prazo erro:", e);
-      res.status(500).json({ erro: e?.message || String(e) });
+      res.status(500).json({ erro: "Falha temporária no servidor. Tente novamente." });
     }
   });
 
@@ -1164,7 +1176,7 @@ ${texto}`;
       });
     } catch (e: any) {
       console.error("extrair-partes erro:", e);
-      res.status(500).json({ erro: e?.message || String(e) });
+      res.status(500).json({ erro: "Falha temporária no servidor. Tente novamente." });
     }
   });
 
@@ -1239,7 +1251,7 @@ ${polosStr}`;
       res.json({ cabecalho: texto.trim() });
     } catch (e: any) {
       console.error("gerar-cabecalho erro:", e);
-      res.status(500).json({ erro: e?.message || String(e) });
+      res.status(500).json({ erro: "Falha temporária no servidor. Tente novamente." });
     }
   });
 

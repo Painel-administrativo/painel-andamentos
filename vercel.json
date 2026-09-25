@@ -2,15 +2,23 @@
   "$schema": "https://openapi.vercel.sh/vercel.json",
   "version": 2,
   "framework": null,
-  "buildCommand": "echo 'no build needed'",
+  "buildCommand": "npx vite build && node script/build-api.mjs",
   "installCommand": "npm install --ignore-scripts",
-  "outputDirectory": "public",
+  "outputDirectory": "dist/public",
   "regions": ["gru1"],
   "functions": {
     "api/index.js": {
       "maxDuration": 60
     }
   },
+  "headers": [
+    { "source": "/(.*)", "headers": [
+      { "key": "X-Content-Type-Options", "value": "nosniff" },
+      { "key": "Referrer-Policy", "value": "no-referrer" },
+      { "key": "X-Frame-Options", "value": "DENY" }
+    ]},
+    { "source": "/sw.js", "headers": [{ "key": "Cache-Control", "value": "no-cache" }] }
+  ],
   "rewrites": [
     { "source": "/api/(.*)", "destination": "/api/index" },
     { "source": "/api", "destination": "/api/index" }

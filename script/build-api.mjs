@@ -1,7 +1,7 @@
 // Bundle api/index.ts + dependências em um único arquivo CommonJS
 // para o Vercel serverless (evita problemas de ESM + resolução de módulos).
 import { build } from "esbuild";
-import { rmSync, mkdirSync } from "fs";
+import { rmSync, mkdirSync, copyFileSync } from "fs";
 import { join } from "path";
 
 const root = process.cwd();
@@ -15,6 +15,7 @@ await build({
   platform: "node",
   target: "node22",
   format: "cjs",
+  loader: { ".crt": "text" },
   outfile: join(outdir, "index.cjs"),
   external: [
     // dependências nativas (bindings) — devem vir do node_modules em runtime
@@ -32,3 +33,4 @@ await build({
 });
 
 console.log("✓ Bundle criado em", outdir);
+copyFileSync(join(outdir, "index.cjs"), join(root, "api/index.js"));

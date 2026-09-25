@@ -4,7 +4,7 @@
 //  - Navegações (HTML): network-first com fallback pro cache (sempre pega versão nova quando online)
 //  - API (/api/, /port/5000/): sempre rede (dados sempre frescos, nunca em cache)
 
-const CACHE_VERSION = "v11";
+const CACHE_VERSION = "v12-auth";
 const CACHE_NAME = `painel-andamentos-${CACHE_VERSION}`;
 
 // Precache mínimo — o resto é cacheado sob demanda
@@ -38,6 +38,7 @@ self.addEventListener("fetch", (event) => {
   if (req.method !== "GET") return;
 
   const url = new URL(req.url);
+  if (url.origin !== self.location.origin) return;
 
   // Nunca cacheia chamadas da API — sempre rede
   if (

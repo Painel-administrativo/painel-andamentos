@@ -9,6 +9,7 @@ import NotFound from "@/pages/not-found";
 import Home from "@/pages/home";
 import PublicacaoPublica from "@/pages/publicacao-publica";
 import { InstalarPWA } from "@/components/InstalarPWA";
+import AuthGate, { LegacyEntry } from "@/components/AuthGate";
 
 function AppRouter() {
   return (
@@ -21,15 +22,19 @@ function AppRouter() {
 }
 
 function App() {
+  const native = ["painel-andamentos-backend.vercel.app", "localhost", "127.0.0.1"].includes(location.hostname);
+  if (!native) return <ThemeProvider><LegacyEntry /></ThemeProvider>;
   return (
     <QueryClientProvider client={queryClient}>
       <ThemeProvider>
         <TooltipProvider>
           <Toaster />
-          <Router hook={useHashLocation}>
-            <AppRouter />
-          </Router>
-          <InstalarPWA />
+          <AuthGate>
+            <Router hook={useHashLocation}>
+              <AppRouter />
+            </Router>
+            <InstalarPWA />
+          </AuthGate>
         </TooltipProvider>
       </ThemeProvider>
     </QueryClientProvider>

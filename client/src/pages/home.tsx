@@ -4,6 +4,7 @@ import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import { useTheme } from "@/lib/theme";
 import { Logo } from "@/components/Logo";
+import { LogoutButton } from "@/components/AuthGate";
 import { ProcessoDialog } from "@/components/ProcessoDialog";
 import { BulkAddDialog } from "@/components/BulkAddDialog";
 import { Timeline } from "@/components/Timeline";
@@ -418,6 +419,7 @@ export default function Home() {
             </div>
           </div>
           <div className="flex items-center gap-2">
+            <LogoutButton />
             <Button
               variant="ghost"
               size="icon"

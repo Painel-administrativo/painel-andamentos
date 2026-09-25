@@ -1,4 +1,5 @@
 import { Pool } from "pg";
+import supabaseCA from "./certs/prod-ca-2021.crt";
 import type {
   Processo,
   InsertProcesso,
@@ -21,11 +22,12 @@ if (!DATABASE_URL) {
   );
 }
 
-// Serverless-friendly: pool pequeno, timeouts curtos, ssl relaxado
-// (Supabase pooler exige SSL mas com CA gerenciado pelo provedor).
+// Verify both the certificate chain and host, including the official Supabase CA.
+const databaseUrl = new URL(DATABASE_URL);
+["sslmode", "sslrootcert", "sslcert", "sslkey"].forEach(key => databaseUrl.searchParams.delete(key));
 export const pool = new Pool({
-  connectionString: DATABASE_URL,
-  ssl: { rejectUnauthorized: false },
+  connectionString: databaseUrl.toString(),
+  ssl: { rejectUnauthorized: true, ca: supabaseCA },
   max: 3,
   idleTimeoutMillis: 10_000,
   connectionTimeoutMillis: 10_000,

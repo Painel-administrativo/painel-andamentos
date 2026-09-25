@@ -48,6 +48,7 @@ async function buildAll() {
     entryPoints: ["server/index.ts"],
     platform: "node",
     bundle: true,
+    loader: { ".crt": "text" },
     format: "cjs",
     outfile: "dist/index.cjs",
     define: {
