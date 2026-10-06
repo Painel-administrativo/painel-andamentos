@@ -217,6 +217,14 @@ function AnotacaoBloco({ pub, feriados, onSalvar, onToast }: AnotacaoBlocoProps)
       }
     }
 
+    // Primeiro o destinatário lê o texto integral; a recomendação vem ao final.
+    // Confira: texto integral da publicação em itálico (WhatsApp respeita _..._)
+    if (textoPub) {
+      linhas.push("");
+      linhas.push("*Confira:*");
+      linhas.push(`_${textoPub}_`);
+    }
+
     // Anotação: primeira linha que comece com Ação:/Fazer:/Providenciar: vira "*Ação:* …"
     // Demais linhas viram "› …" (curadoria/observações)
     if (anot) {
@@ -240,13 +248,6 @@ function AnotacaoBloco({ pub, feriados, onSalvar, onToast }: AnotacaoBlocoProps)
           linhas.push(`› ${l}`);
         });
       }
-    }
-
-    // Confira: texto integral da publicação em itálico (WhatsApp respeita _..._)
-    if (textoPub) {
-      linhas.push("");
-      linhas.push("*Confira:*");
-      linhas.push(`_${textoPub}_`);
     }
 
     // Link do WhatsApp removido em 16/09/2026: mesmo com token opaco, expõe
