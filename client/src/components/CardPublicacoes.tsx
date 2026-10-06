@@ -1445,6 +1445,12 @@ export function CardPublicacoes() {
                         </div>
                       );
                     })()}
+                    <div
+                      className="text-sm text-foreground/90 whitespace-pre-wrap leading-relaxed"
+                      data-testid={`texto-publicacao-${pub.id}`}
+                    >
+                      {limparTexto(pub.texto) || <em className="text-muted-foreground">Sem texto disponível.</em>}
+                    </div>
                     <AnotacaoBloco
                       pub={pub}
                       feriados={feriados}
@@ -1469,9 +1475,6 @@ export function CardPublicacoes() {
                       }}
                       onToast={(t) => toast(t)}
                     />
-                    <div className="text-sm text-foreground/90 whitespace-pre-wrap leading-relaxed">
-                      {limparTexto(pub.texto) || <em className="text-muted-foreground">Sem texto disponível.</em>}
-                    </div>
                     <div className="flex items-center gap-2 flex-wrap pt-1">
                       {pub.link && (
                         <a

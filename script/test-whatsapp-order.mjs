@@ -5,6 +5,8 @@ import ts from "typescript";
 
 // Exercise the actual clipboard handler, not a duplicated formatter.
 const source = readFileSync("client/src/components/CardPublicacoes.tsx", "utf8");
+assert.ok(source.indexOf('data-testid={`texto-publicacao-${pub.id}`}') < source.indexOf("<AnotacaoBloco"),
+  "O campo de anotações deve aparecer depois do texto integral no card.");
 const handler = source.slice(
   source.indexOf("  const copiarComContexto = async"),
   source.indexOf("\n  return (", source.indexOf("  const copiarComContexto = async")),
