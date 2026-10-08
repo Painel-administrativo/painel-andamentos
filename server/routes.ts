@@ -6,6 +6,7 @@ import { storage, pool } from "./storage";
 import { insertProcessoInputSchema, type DatajudSource, TRIBUNAIS } from "@shared/schema";
 import { z } from "zod";
 import { createProductionAuth } from "./auth";
+import { DjenResponseError, lerRespostaDjen } from "./djen-response";
 
 // Segredo para tokens opacos de publicações públicas (usadas em links WhatsApp).
 // Preferível via env var; fallback constante só pra não quebrar dev local.
@@ -664,6 +665,8 @@ export async function registerRoutes(
       let totalNovas = 0;
       let erros = 0;
       let erros429 = 0;
+      let errosRespostaInvalida = 0;
+      const falhas: Array<{ processoId: number; codigo: string }> = [];
 
       // Delay entre chamadas ao DJEN (rate-limit protection).
       // Sem isso, o DJEN começa a devolver 429 depois de ~20 requests rápidos.
@@ -681,6 +684,7 @@ export async function registerRoutes(
           const numero20 = normalizarNumero(p.numero);
           if (numero20.length !== 20) {
             erros++;
+            falhas.push({ processoId: p.id, codigo: "NUMERO_INVALIDO" });
             continue;
           }
           const params = new URLSearchParams({
@@ -690,7 +694,7 @@ export async function registerRoutes(
             dataDisponibilizacaoFim: fim,
           });
           const url = `https://comunicaapi.pje.jus.br/api/v1/comunicacao?${params.toString()}`;
-          const resp = await fetch(url, {
+          let resp = await fetch(url, {
             method: "GET",
             headers: {
               "Accept": "application/json",
@@ -701,42 +705,23 @@ export async function registerRoutes(
             // Rate limit — espera mais e refaz
             erros429++;
             await sleep(15000);
-            const resp2 = await fetch(url, {
+            resp = await fetch(url, {
               method: "GET",
               headers: {
                 "Accept": "application/json",
                 "User-Agent": "PainelAndamentos/1.0 (cron)",
               },
             });
-            if (resp2.status !== 200) {
-              erros++;
-              continue;
-            }
-            const body2 = await resp2.json().catch(() => null) as any;
-            if (!body2 || !Array.isArray(body2.items) || body2.items.length === 0) {
-              continue;
-            }
-            const { inseridas: ins2 } = await storage.inserirPublicacoes(p.id, body2.items);
-            if (ins2 > 0) {
-              processosComNovas.push({
-                id: p.id,
-                apelido: p.apelido,
-                numero: p.numero,
-                novas: ins2,
-              });
-              totalNovas += ins2;
-            }
-            continue;
           }
           if (resp.status !== 200) {
             erros++;
+            falhas.push({ processoId: p.id, codigo: `DJEN_HTTP_${resp.status}` });
             continue;
           }
-          const body = await resp.json().catch(() => null) as any;
-          if (!body || !Array.isArray(body.items) || body.items.length === 0) {
-            continue;
-          }
-          const { inseridas } = await storage.inserirPublicacoes(p.id, body.items);
+          // Mesma validação na resposta inicial e na repetição após HTTP 429.
+          const items = await lerRespostaDjen(resp);
+          if (items.length === 0) continue;
+          const { inseridas } = await storage.inserirPublicacoes(p.id, items);
           if (inseridas > 0) {
             processosComNovas.push({
               id: p.id,
@@ -748,7 +733,10 @@ export async function registerRoutes(
           }
         } catch (e) {
           erros++;
-          console.error(`publicacoes/atualizar erro no processo ${p.id}:`, (e as Error).message);
+          const codigo = e instanceof DjenResponseError ? e.codigo : "DJEN_CONSULTA_OU_GRAVACAO_FALHOU";
+          if (e instanceof DjenResponseError) errosRespostaInvalida++;
+          falhas.push({ processoId: p.id, codigo });
+          console.error(`publicacoes/atualizar erro no processo ${p.id}: ${codigo}`);
         }
       }
 
@@ -762,6 +750,9 @@ export async function registerRoutes(
         processosComNovas,
         erros,
         erros429,
+        errosRespostaInvalida,
+        falhas,
+        consultaCompleta: erros === 0,
         offset,
         proximoOffset,
         concluido,

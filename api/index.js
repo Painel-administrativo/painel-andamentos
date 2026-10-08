@@ -55160,6 +55160,42 @@ function createProductionAuth(config, sessions, injectedVerifier) {
   return app2;
 }
 
+// server/djen-response.ts
+var DjenResponseError = class extends Error {
+  constructor(codigo) {
+    super(codigo);
+    this.codigo = codigo;
+    this.name = "DjenResponseError";
+  }
+};
+async function lerRespostaDjen(response) {
+  let body;
+  try {
+    body = await response.json();
+  } catch {
+    throw new DjenResponseError("DJEN_JSON_INVALIDO");
+  }
+  if (!body || typeof body !== "object" || Array.isArray(body)) {
+    throw new DjenResponseError("DJEN_FORMATO_INVALIDO");
+  }
+  const envelope = body;
+  if (envelope.status !== void 0 && envelope.status !== "success" || envelope.error || envelope.erro || envelope.success === false) {
+    throw new DjenResponseError("DJEN_ERRO_NO_ENVELOPE");
+  }
+  if (!Array.isArray(envelope.items)) {
+    throw new DjenResponseError("DJEN_ITEMS_INVALIDOS");
+  }
+  if (envelope.count !== void 0 && (typeof envelope.count !== "number" || !Number.isSafeInteger(envelope.count) || envelope.count < envelope.items.length || envelope.count > 0 && envelope.items.length === 0)) {
+    throw new DjenResponseError("DJEN_CONTAGEM_INCONSISTENTE");
+  }
+  for (const item of envelope.items) {
+    if (!item || typeof item !== "object" || Array.isArray(item) || typeof item.hash !== "string" || !item.hash.trim() || typeof item.data_disponibilizacao !== "string" || !/^\d{4}-\d{2}-\d{2}$/.test(item.data_disponibilizacao) || !Number.isFinite(Date.parse(item.data_disponibilizacao)) || new Date(item.data_disponibilizacao).toISOString().slice(0, 10) !== item.data_disponibilizacao) {
+      throw new DjenResponseError("DJEN_ITEM_INVALIDO");
+    }
+  }
+  return envelope.items;
+}
+
 // server/routes.ts
 var PUBLIC_TOKEN_SECRET = process.env.PUBLIC_TOKEN_SECRET || "painel-andamentos-cf-2026-token-secret-v1";
 function tokenPublico(id) {
@@ -55646,6 +55682,8 @@ async function registerRoutes(httpServer, app2) {
       let totalNovas = 0;
       let erros = 0;
       let erros429 = 0;
+      let errosRespostaInvalida = 0;
+      const falhas = [];
       const sleep2 = (ms) => new Promise((r) => setTimeout(r, ms));
       for (let i = 0; i < procs.length; i++) {
         const p = procs[i];
@@ -55654,6 +55692,7 @@ async function registerRoutes(httpServer, app2) {
           const numero20 = normalizarNumero(p.numero);
           if (numero20.length !== 20) {
             erros++;
+            falhas.push({ processoId: p.id, codigo: "NUMERO_INVALIDO" });
             continue;
           }
           const params = new URLSearchParams({
@@ -55663,7 +55702,7 @@ async function registerRoutes(httpServer, app2) {
             dataDisponibilizacaoFim: fim
           });
           const url = `https://comunicaapi.pje.jus.br/api/v1/comunicacao?${params.toString()}`;
-          const resp = await fetch(url, {
+          let resp = await fetch(url, {
             method: "GET",
             headers: {
               "Accept": "application/json",
@@ -55673,42 +55712,22 @@ async function registerRoutes(httpServer, app2) {
           if (resp.status === 429) {
             erros429++;
             await sleep2(15e3);
-            const resp2 = await fetch(url, {
+            resp = await fetch(url, {
               method: "GET",
               headers: {
                 "Accept": "application/json",
                 "User-Agent": "PainelAndamentos/1.0 (cron)"
               }
             });
-            if (resp2.status !== 200) {
-              erros++;
-              continue;
-            }
-            const body2 = await resp2.json().catch(() => null);
-            if (!body2 || !Array.isArray(body2.items) || body2.items.length === 0) {
-              continue;
-            }
-            const { inseridas: ins2 } = await storage.inserirPublicacoes(p.id, body2.items);
-            if (ins2 > 0) {
-              processosComNovas.push({
-                id: p.id,
-                apelido: p.apelido,
-                numero: p.numero,
-                novas: ins2
-              });
-              totalNovas += ins2;
-            }
-            continue;
           }
           if (resp.status !== 200) {
             erros++;
+            falhas.push({ processoId: p.id, codigo: `DJEN_HTTP_${resp.status}` });
             continue;
           }
-          const body = await resp.json().catch(() => null);
-          if (!body || !Array.isArray(body.items) || body.items.length === 0) {
-            continue;
-          }
-          const { inseridas } = await storage.inserirPublicacoes(p.id, body.items);
+          const items = await lerRespostaDjen(resp);
+          if (items.length === 0) continue;
+          const { inseridas } = await storage.inserirPublicacoes(p.id, items);
           if (inseridas > 0) {
             processosComNovas.push({
               id: p.id,
@@ -55720,7 +55739,10 @@ async function registerRoutes(httpServer, app2) {
           }
         } catch (e) {
           erros++;
-          console.error(`publicacoes/atualizar erro no processo ${p.id}:`, e.message);
+          const codigo = e instanceof DjenResponseError ? e.codigo : "DJEN_CONSULTA_OU_GRAVACAO_FALHOU";
+          if (e instanceof DjenResponseError) errosRespostaInvalida++;
+          falhas.push({ processoId: p.id, codigo });
+          console.error(`publicacoes/atualizar erro no processo ${p.id}: ${codigo}`);
         }
       }
       const concluido = procs.length < limite;
@@ -55732,6 +55754,9 @@ async function registerRoutes(httpServer, app2) {
         processosComNovas,
         erros,
         erros429,
+        errosRespostaInvalida,
+        falhas,
+        consultaCompleta: erros === 0,
         offset,
         proximoOffset,
         concluido
