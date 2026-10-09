@@ -12,7 +12,7 @@ type Log = {
   respostas_invalidas: number; lote_offset: number;
   falhas: Array<{ processoId?: number; codigo: string }>;
 };
-const labels = { em_andamento: "Sem término registrado", sem_erros: "Sem erros registrados", parcial: "Parcial", falha: "Falha" };
+const labels = { em_andamento: "Sem término registrado", sem_erros: "Sem erros", parcial: "Parcial", falha: "Falha" };
 export function HistoricoDjen() {
   const [running, setRunning] = useState(false);
   const [message, setMessage] = useState("");
@@ -81,10 +81,10 @@ export function HistoricoDjen() {
       falhas: lotes.flatMap(l => l.falhas),
     };
   });
-  return <section className="mb-6 rounded-xl border bg-card p-5" aria-label="Histórico de atualizações">
+  return <section className="mb-6 rounded-xl border bg-card px-5 py-6" aria-label="Histórico de atualizações">
     <div className="flex items-start justify-between gap-4">
       <div><h2 className="font-semibold">Histórico de atualizações</h2>
-        <p className="text-sm text-muted-foreground">Uma linha por atualização. Registros sem identificador são agrupados pela sequência de lotes e horários. Histórico de até 200 lotes dos últimos 7 dias. Falhas indicam consultas inconclusivas. Ausência de erros não comprova cobertura integral do DJEN.</p></div>
+        <p className="text-sm text-muted-foreground">Atualizações dos últimos 7 dias, uma linha por consulta. “DJEN falhas” indica processos com falha registrada na consulta.</p></div>
       <Button variant="outline" size="icon" aria-label="Atualizar histórico" disabled={query.isFetching} onClick={() => query.refetch()}>
         <RefreshCw className={`h-4 w-4 ${query.isFetching ? "animate-spin" : ""}`} />
       </Button>
@@ -102,18 +102,23 @@ export function HistoricoDjen() {
       : query.isError ? <p className="mt-4 text-sm text-destructive" role="alert">{query.error.message}</p>
       : !query.data?.length ? <p className="mt-4 text-sm text-muted-foreground">Nenhuma execução registrada nos últimos 7 dias. O histórico começa após a implantação.</p>
       : <div className="mt-4 overflow-x-auto"><table className="w-full text-sm text-left">
-        <thead className="text-xs uppercase text-muted-foreground"><tr>{["Quando (Brasília)", "Detalhes", "Processos", "Novidades", "HTTP 429", "Erros", "Resultado"].map(t => <th key={t} className="border-b p-2 font-medium">{t}</th>)}</tr></thead>
+        <thead className="text-xs uppercase text-muted-foreground"><tr>{["Quando", "Processos", "Novidades", "DJEN falhas", "Erros", "Resultado"].map(t => <th key={t} className="border-b p-2 font-medium">{t}</th>)}</tr></thead>
         <tbody>{linhas.map(log => <tr key={log.id}>
           <td className="border-b p-2 whitespace-nowrap">{new Date(log.iniciado_em).toLocaleString("pt-BR", { timeZone: "America/Sao_Paulo", dateStyle: "short", timeStyle: "short" })}</td>
-          <td className="border-b p-2"><details><summary className="cursor-pointer">{log.lotes.length} lote(s)</summary>
-            <ul className="min-w-48">{log.lotes.map(l => <li key={l.id}>Lote {l.lote_offset}: {l.processos} processos, {l.novidades} novidades, {l.erros} erros</li>)}</ul>
-            <p className="text-xs text-muted-foreground">{log.rodada_id ? "Atualização identificada." : "Agrupamento inferido por sequência; consultas simultâneas podem aparecer separadas."} Totais dos lotes disponíveis neste histórico.</p>
-          </details></td><td className="border-b p-2">{log.processos}</td>
+          <td className="border-b p-2">{log.processos}</td>
           <td className="border-b p-2 text-emerald-600">{log.novidades}</td>
-          <td className="border-b p-2">{log.rate_limits}</td>
-          <td className="border-b p-2"><span className={log.erros ? "text-destructive" : ""}>{log.erros}</span>
-            {log.falhas.length > 0 && <details><summary className="cursor-pointer text-xs">Detalhes</summary><ul className="min-w-48">{log.falhas.map((f, i) => <li key={i}>{f.processoId ? `Processo ID ${f.processoId}: ` : ""}{f.codigo}</li>)}</ul></details>}
-          </td><td className={`border-b p-2 ${log.status !== "sem_erros" ? "text-destructive" : "text-muted-foreground"}`}>{labels[log.status as keyof typeof labels]}</td>
+          <td className="border-b p-2">{log.falhas.filter(f => f.codigo.startsWith("DJEN_")).length}</td>
+          <td className={`border-b p-2 ${log.erros ? "text-destructive" : ""}`}>{log.erros}</td>
+          <td className={`border-b p-2 ${log.status !== "sem_erros" ? "text-destructive" : "text-emerald-600"}`}>
+            <details><summary className="cursor-pointer whitespace-nowrap">{labels[log.status as keyof typeof labels]}</summary>
+              <div className="mt-2 min-w-52 text-xs text-muted-foreground">
+                <p>{log.rodada_id ? "Atualização identificada." : "Agrupamento inferido pela sequência de lotes."} Totais dos registros disponíveis.</p>
+                <p>Horário de Brasília. HTTP 429: {log.rate_limits}. Ausência de erros não comprova cobertura integral.</p>
+                <ul>{log.lotes.map(l => <li key={l.id}>Lote {l.lote_offset}: {l.processos} processos, {l.novidades} novidades, {l.erros} erros.</li>)}</ul>
+                <ul>{log.falhas.map((f,i) => <li key={i}>{f.processoId ? `Processo ID ${f.processoId}: ` : ""}{f.codigo}</li>)}</ul>
+              </div>
+            </details>
+          </td>
         </tr>)}</tbody>
       </table></div>}
   </section>;
