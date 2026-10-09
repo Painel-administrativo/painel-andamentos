@@ -63,7 +63,7 @@ export default function Home() {
   const { toast } = useToast();
   const { theme, toggle } = useTheme();
 
-  const [aba, setAba] = useState<"painel" | "processos" | "publicacoes">("painel");
+  const [aba, setAba] = useState<"painel" | "processos" | "publicacoes" | "logs">("painel");
   const [busca, setBusca] = useState("");
   const [filtroTribunal, setFiltroTribunal] = useState<"Todos" | "TJRJ" | "TRF2" | "TRT1" | "TJSP" | "TJRS">("Todos");
   const [soRecentes, setSoRecentes] = useState(false);
@@ -435,11 +435,10 @@ export default function Home() {
       </header>
 
       <main className="mx-auto max-w-[1280px] px-4 sm:px-6 py-6">
-        <HistoricoDjen />
         {/* Barra de controle */}
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-5">
           <Tabs value={aba} onValueChange={(v) => setAba(v as any)}>
-            <TabsList>
+            <TabsList className="h-auto flex flex-wrap">
               <TabsTrigger value="painel" data-testid="tab-painel">
                 Painel de andamentos
               </TabsTrigger>
@@ -453,6 +452,7 @@ export default function Home() {
                 Publicações
                 <BadgeNaoLidas />
               </TabsTrigger>
+              <TabsTrigger value="logs" data-testid="tab-logs">Histórico DJEN</TabsTrigger>
             </TabsList>
           </Tabs>
 
@@ -531,8 +531,10 @@ export default function Home() {
           </div>
         </div>
 
+        <div hidden={aba !== "logs"}><HistoricoDjen /></div>
+
         {/* Aba "Publicações" — substitui a tabela toda */}
-        {aba === "publicacoes" ? (
+        {aba === "logs" ? null : aba === "publicacoes" ? (
           <CardPublicacoes />
         ) : semProcessos ? (
           <EmptyState onAdd={() => setAddOpen(true)} onBulk={() => setBulkOpen(true)} />
