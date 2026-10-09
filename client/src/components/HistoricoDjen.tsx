@@ -1,3 +1,5 @@
+import { useRef, useState, useEffect } from "react";
+import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useQuery } from "@tanstack/react-query";
 import { RefreshCw } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -11,6 +13,41 @@ type Log = {
 };
 const labels = { em_andamento: "Sem término registrado", sem_erros: "Sem erros registrados", parcial: "Parcial", falha: "Falha" };
 export function HistoricoDjen() {
+  const [running, setRunning] = useState(false);
+  const [message, setMessage] = useState("");
+  const busy = useRef(false);
+  const stop = useRef(false);
+  useEffect(() => () => { stop.current = true; }, []);
+  async function atualizarDjen() {
+    if (busy.current) return;
+    busy.current = true; stop.current = false; setRunning(true);
+    let offset = 0, processos = 0, novidades = 0, erros = 0;
+    try {
+      while (!stop.current) {
+        setMessage(`Consultando DJEN: ${processos} processos consultados, ${novidades} novidades, ${erros} falhas.`);
+        // Lotes pequenos respeitam o limite de execução do backend.
+        const response = await apiRequest("POST", `/api/publicacoes/atualizar?limite=5&offset=${offset}&dias=3`);
+        const data = await response.json();
+        if (![data.processados, data.novasPublicacoes, data.erros, data.proximoOffset].every(n => Number.isSafeInteger(n) && n >= 0) ||
+            typeof data.concluido !== "boolean" || (!data.concluido && data.proximoOffset <= offset)) {
+          throw new Error("Resposta inconclusiva do servidor; a consulta foi interrompida.");
+        }
+        processos += data.processados; novidades += data.novasPublicacoes; erros += data.erros;
+        await queryClient.invalidateQueries({ queryKey: ["/api/monitoramento/logs"] });
+        await queryClient.invalidateQueries({ queryKey: ["/api/publicacoes"] });
+        await queryClient.invalidateQueries({ queryKey: ["/api/publicacoes/nao-lidas-count"] });
+        offset = data.proximoOffset;
+        if (data.concluido) {
+          setMessage(`${erros ? "Consulta parcial" : "Consulta encerrada sem erros registrados"}: ${processos} processos, ${novidades} novidades e ${erros} falhas. Confira os detalhes no histórico.`);
+          return;
+        }
+        await new Promise(resolve => setTimeout(resolve, 10000));
+      }
+      setMessage(`Consulta interrompida: ${processos} processos consultados, ${novidades} novidades e ${erros} falhas. Os lotes concluídos foram preservados.`);
+    } catch (error) {
+      setMessage(`Consulta inconclusiva após ${processos} processos: ${error instanceof Error ? error.message : "Falha de conexão"}. Confira o histórico antes de repetir.`);
+    } finally { busy.current = false; setRunning(false); }
+  }
   const query = useQuery<Log[]>({ queryKey: ["/api/monitoramento/logs"], staleTime: 30000, refetchInterval: 60000 });
   return <section className="mb-6 rounded-xl border bg-card p-5" aria-label="Histórico de atualizações">
     <div className="flex items-start justify-between gap-4">
@@ -20,6 +57,15 @@ export function HistoricoDjen() {
         <RefreshCw className={`h-4 w-4 ${query.isFetching ? "animate-spin" : ""}`} />
       </Button>
     </div>
+    <div className="mt-4 flex flex-wrap items-center gap-3">
+      <Button onClick={atualizarDjen} disabled={running} data-testid="button-atualizar-djen">
+        <RefreshCw className={`mr-2 h-4 w-4 ${running ? "animate-spin" : ""}`} />
+        {running ? "Consultando DJEN…" : "Atualizar DJEN manualmente"}
+      </Button>
+      {running && <Button variant="outline" onClick={() => { stop.current = true; setMessage("Interrompendo após o lote em andamento…"); }}>Interromper</Button>}
+      <p className="text-sm text-muted-foreground">Consulta os processos cadastrados na janela de 3 dias. Mantenha esta página aberta.</p>
+    </div>
+    {message && <p className="mt-3 text-sm" role="status" aria-live="polite">{message}</p>}
     {query.isPending ? <p className="mt-4 text-sm" role="status">Carregando histórico…</p>
       : query.isError ? <p className="mt-4 text-sm text-destructive" role="alert">{query.error.message}</p>
       : !query.data?.length ? <p className="mt-4 text-sm text-muted-foreground">Nenhuma execução registrada nos últimos 7 dias. O histórico começa após a implantação.</p>
