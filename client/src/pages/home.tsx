@@ -1,3 +1,4 @@
+import { HistoricoDjen } from "@/components/HistoricoDjen";
 import { useState, useMemo, useEffect, useRef } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { apiRequest, queryClient } from "@/lib/queryClient";
@@ -434,6 +435,7 @@ export default function Home() {
       </header>
 
       <main className="mx-auto max-w-[1280px] px-4 sm:px-6 py-6">
+        <HistoricoDjen />
         {/* Barra de controle */}
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-5">
           <Tabs value={aba} onValueChange={(v) => setAba(v as any)}>
