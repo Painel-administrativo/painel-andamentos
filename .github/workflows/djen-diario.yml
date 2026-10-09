@@ -1,0 +1,24 @@
+name: Consulta diária DJEN
+on:
+  schedule:
+    # 08:00 UTC = 05:00 America/Sao_Paulo. GitHub pode atrasar execuções.
+    - cron: '0 8 * * *'
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: consulta-djen-diaria
+  cancel-in-progress: false
+jobs:
+  consultar:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Consultar todos os processos cadastrados
+        env:
+          AUTH_AUTOMATION_TOKEN: ${{ secrets.AUTH_AUTOMATION_TOKEN }}
+        run: python scripts/consultar-djen-diario.py
