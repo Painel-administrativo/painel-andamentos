@@ -17,3 +17,7 @@ CREATE TABLE IF NOT EXISTS public.painel_djen_logs (
 CREATE INDEX IF NOT EXISTS painel_djen_logs_data ON public.painel_djen_logs (iniciado_em DESC);
 ALTER TABLE public.painel_djen_logs ENABLE ROW LEVEL SECURITY;
 REVOKE ALL ON public.painel_djen_logs FROM anon, authenticated;
+
+-- Identificador compartilhado pelos lotes de uma atualização manual.
+ALTER TABLE public.painel_djen_logs ADD COLUMN IF NOT EXISTS rodada_id uuid;
+CREATE INDEX IF NOT EXISTS painel_djen_logs_rodada ON public.painel_djen_logs (rodada_id) WHERE rodada_id IS NOT NULL;

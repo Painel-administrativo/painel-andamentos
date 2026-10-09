@@ -169,7 +169,7 @@ export async function registerRoutes(
     try {
       const { rows } = await pool.query(`SELECT id, iniciado_em, finalizado_em,
         status, processos, novidades, erros, rate_limits, respostas_invalidas,
-        lote_offset, janela_inicio, janela_fim, falhas
+        lote_offset, janela_inicio, janela_fim, falhas, rodada_id
         FROM public.painel_djen_logs
         WHERE iniciado_em >= now() - interval '7 days'
         ORDER BY iniciado_em DESC, id DESC LIMIT 200`);
@@ -669,12 +669,14 @@ export async function registerRoutes(
       const inicioDate = new Date(hoje.getTime() - dias * 24 * 60 * 60 * 1000);
       const inicio = inicioDate.toISOString().slice(0, 10);
 
+      const rodadaInput = req.query.rodada;
+      const rodadaId = rodadaInput === undefined ? null : z.string().uuid().parse(rodadaInput);
       // Registrar antes da coleta: interrupções ficam visíveis como execução sem término.
       const log = await pool.query<{ id: string }>(
         `INSERT INTO public.painel_djen_logs
-         (iniciado_em, status, lote_offset, janela_inicio, janela_fim)
-         VALUES (now(), 'em_andamento', $1, $2, $3) RETURNING id`,
-        [offset, inicio, fim]);
+         (iniciado_em, status, lote_offset, janela_inicio, janela_fim, rodada_id)
+         VALUES (now(), 'em_andamento', $1, $2, $3, $4) RETURNING id`,
+        [offset, inicio, fim, rodadaId]);
       logId = log.rows[0].id;
 
       // Lista processos pelo ID ascendente (paginado). Query direta ao
