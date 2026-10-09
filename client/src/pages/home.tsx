@@ -437,8 +437,8 @@ export default function Home() {
       <main className="mx-auto max-w-[1280px] px-4 sm:px-6 py-6">
         {/* Barra de controle */}
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-5">
-          <Tabs value={aba} onValueChange={(v) => setAba(v as any)}>
-            <TabsList className="h-auto flex flex-wrap">
+          <Tabs className="min-w-0 w-full sm:w-auto sm:max-w-full" value={aba} onValueChange={(v) => setAba(v as any)}>
+            <TabsList className="h-10 w-full justify-start overflow-x-auto flex-nowrap sm:w-auto">
               <TabsTrigger value="painel" data-testid="tab-painel">
                 Painel de andamentos
               </TabsTrigger>

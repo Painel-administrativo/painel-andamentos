@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { randomBytes, createHash } from "node:crypto";
-import { createProductionAuth, cookieCodec, type HostedConfig } from "../server/auth";
+import { createProductionAuth, cookieCodec, type HostedConfig, SESSION_DURATION_MS } from "../server/auth";
 
 async function main() {
   const config: HostedConfig = {
@@ -18,12 +18,20 @@ async function main() {
     async allowLogin(_kind: string) { return loginAllowed; },
   };
   let unavailable = false;
+  let refreshes = 0;
+  let refuseRefresh = false;
   const app = createProductionAuth(config, repository, async token => {
     if (unavailable) throw new Error("offline");
     return {
       id: token.startsWith("other") ? "other-id" : "admin-id",
       email: config.adminEmail, email_confirmed_at: new Date().toISOString(),
     } as any;
+  }, async () => {
+    refreshes++;
+    if (refuseRefresh) return null;
+    return { access_token: "renewed".repeat(12), refresh_token: "rotated-refresh",
+      expires_at: Math.floor(Date.now()/1000)+3600,
+      user: { id: config.adminId, email: config.adminEmail, email_confirmed_at: new Date().toISOString() } } as any;
   });
   app.get("/api/processos", (_req, res) => res.json({ ok: true }));
   app.post("/api/processos/atualizar", (_req, res) => res.json({ ok: true }));
@@ -39,11 +47,11 @@ async function main() {
     tests++;
     return res;
   }
-  async function cookie(token = "valid".repeat(12), expiry = Date.now() + 60_000) {
+  async function cookie(token = "valid".repeat(12), expiry = Date.now() + 60_000, extra = {}) {
     const sid = randomBytes(32).toString("base64url");
     await repository.create(createHash("sha256").update(sid).digest("hex"), expiry);
     return "__Host-painel-session=" + cookieCodec(config.secret!).seal({
-      token, uid: config.adminId, sid, expiresAt: expiry,
+      token, uid: config.adminId, sid, expiresAt: expiry, ...extra,
     }, "__Host-painel-session");
   }
   try {
@@ -53,6 +61,19 @@ async function main() {
     await request("/api/processos", 401, { headers: { cookie: "__Host-painel-session=garbage" } });
     await request("/api/processos", 401, { headers: { cookie: await cookie("valid".repeat(12), Date.now() - 1000) } });
     await request("/api/processos", 401, { headers: { cookie: await cookie("other".repeat(12)) } });
+    assert.equal(SESSION_DURATION_MS, 28_800_000);
+    const expires = Date.now() + SESSION_DURATION_MS;
+    const refreshCookie = await cookie("valid".repeat(12), expires,
+      { refreshToken: "test-refresh", tokenExpiresAt: Date.now() - 1000 });
+    const refreshed = await request("/api/processos", 200, { headers: { cookie: refreshCookie } });
+    const sealed = refreshed.headers.get("set-cookie")!.split(";")[0].split("=")[1];
+    const payload = cookieCodec(config.secret!).open(sealed, "__Host-painel-session") as any;
+    assert.equal(payload.expiresAt, expires);
+    assert.equal(payload.refreshToken, "rotated-refresh");
+    assert.equal(refreshes, 1);
+    refuseRefresh = true;
+    await request("/api/processos", 401, { headers: { cookie: refreshCookie } });
+    refuseRefresh = false;
     const session = await cookie();
     await request("/api/processos", 200, { headers: { cookie: session } });
     await request("/api/processos/atualizar", 403, { method: "POST", headers: { cookie: session, Origin: "https://evil.example", "Content-Type": "application/json" }, body: "{}" });

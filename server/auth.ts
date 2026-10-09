@@ -19,7 +19,10 @@ const sessionSchema = z.object({
   token: z.string().min(30).max(4096), uid: z.string().min(1),
   sid: z.string().length(43),
   expiresAt: z.number().finite(),
+  refreshToken: z.string().min(1).max(4096).optional(),
+  tokenExpiresAt: z.number().finite().optional(),
 });
+export const SESSION_DURATION_MS = 8 * 60 * 60_000;
 const oauthSchema = z.object({
   values: z.array(z.tuple([z.string(), z.string()])),
   expiresAt: z.number().finite(),
@@ -59,6 +62,7 @@ export function createProductionAuth(
   config: HostedConfig,
   sessions: SessionRepository,
   injectedVerifier?: (token: string) => Promise<User | null>,
+  injectedRefresh?: (refreshToken: string) => Promise<Session | null>,
 ) {
   const app = express();
   app.disable("x-powered-by");
@@ -105,22 +109,42 @@ export function createProductionAuth(
     return codec!.open(matches[0].slice(name.length + 1), name);
   }
   async function establish(res: Response, session: Session, user: User) {
-    const expiresAt = Math.min((session.expires_at || 0) * 1000, Date.now() + 30 * 60_000);
+    const expiresAt = Date.now() + SESSION_DURATION_MS;
+    if (!session.refresh_token || (session.expires_at || 0) * 1000 <= Date.now()) throw new Error("Expired provider session");
     if (expiresAt <= Date.now()) throw new Error("Expired session");
     const sid = randomBytes(32).toString("base64url");
-    const value = codec!.seal({ token: session.access_token, uid: user.id, expiresAt, sid }, SESSION);
+    const value = codec!.seal({ token: session.access_token, refreshToken: session.refresh_token, tokenExpiresAt: (session.expires_at || 0) * 1000, uid: user.id, expiresAt, sid }, SESSION);
     if (value.length > 3800) throw new Error("Session too large");
     await sessions.create(digest(sid), expiresAt);
     res.cookie(SESSION, value, { ...opts, maxAge: expiresAt - Date.now() });
     return { ticket: "", expiresAt };
   }
-  async function authenticate(req: Request) {
+  const refresh = injectedRefresh || (async (refreshToken: string) => {
+    const { data, error } = await client().auth.auth.refreshSession({ refresh_token: refreshToken });
+    if (error) {
+      if (!error.status || error.status >= 500 || error.status === 429) throw new Error("Provider unavailable");
+      return null;
+    }
+    return data.session;
+  });
+  async function authenticate(req: Request, res: Response) {
     let session: z.infer<typeof sessionSchema>;
     try {
       session = sessionSchema.parse(readCookie(req, SESSION));
       if (session.expiresAt <= Date.now()) return null;
     } catch { return null; }
     if (!await sessions.active(digest(session.sid))) return null;
+    if (session.tokenExpiresAt !== undefined && session.tokenExpiresAt <= Date.now() + 60_000) {
+      if (!session.refreshToken) return null;
+      const renewed = await refresh(session.refreshToken);
+      if (!renewed || renewed.user.id !== session.uid || !allowedVercelUser(renewed.user, config) ||
+          !renewed.refresh_token || (renewed.expires_at || 0) * 1000 <= Date.now()) return null;
+      session = { ...session, token: renewed.access_token, refreshToken: renewed.refresh_token,
+        tokenExpiresAt: renewed.expires_at! * 1000 };
+      const value = codec!.seal(session, SESSION);
+      if (value.length > 3800) throw new Error("Session too large");
+      res.cookie(SESSION, value, { ...opts, maxAge: session.expiresAt - Date.now() });
+    }
     const user = await verifier(session.token);
     return allowedVercelUser(user, config) && user!.id === session.uid ? session : null;
   }
@@ -160,7 +184,7 @@ export function createProductionAuth(
   });
   app.get("/api/auth/session", async (req, res) => {
     try {
-      const session = await authenticate(req);
+      const session = await authenticate(req, res);
       if (!session) { clear(res, SESSION); res.json({ authenticated: false }); return; }
       res.json({ authenticated: true, ticket: "", expiresAt: session.expiresAt });
     } catch { res.status(503).json({ error: "Validação temporariamente indisponível." }); }
@@ -228,7 +252,7 @@ export function createProductionAuth(
   app.use("/api", async (req, res, next) => {
     if (res.locals.automation) return next();
     try {
-      if (!await authenticate(req)) {
+      if (!await authenticate(req, res)) {
         clear(res, SESSION); res.status(401).json({ error: "Entre novamente para acessar o painel." }); return;
       }
       next();
