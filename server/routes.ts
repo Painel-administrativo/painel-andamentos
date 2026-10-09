@@ -164,6 +164,22 @@ export async function registerRoutes(
     },
   }));
 
+  // Histórico privado: somente a sessão autenticada pode ler esta rota.
+  app.get("/api/monitoramento/logs", async (_req, res) => {
+    try {
+      const { rows } = await pool.query(`SELECT id, iniciado_em, finalizado_em,
+        status, processos, novidades, erros, rate_limits, respostas_invalidas,
+        lote_offset, janela_inicio, janela_fim, falhas
+        FROM public.painel_djen_logs
+        WHERE iniciado_em >= now() - interval '7 days'
+        ORDER BY iniciado_em DESC, id DESC LIMIT 200`);
+      res.setHeader("Cache-Control", "no-store");
+      res.json(rows);
+    } catch {
+      res.status(503).json({ erro: "Histórico indisponível. Confira a migração de logs e a conexão com o banco." });
+    }
+  });
+
   // Lista processos + último snapshot
   app.get("/api/processos", async (_req, res) => {
     const lista = await storage.listProcessos();
@@ -641,6 +657,7 @@ export async function registerRoutes(
   // Retorno:
   //   { processados, novasPublicacoes, processosComNovas, concluido, proximoOffset }
   app.post("/api/publicacoes/atualizar", async (req, res) => {
+    let logId: string | undefined;
     try {
       const limite = Math.min(50, Math.max(1, parseInt(String(req.query.limite ?? "20"), 10) || 20));
       const offset = Math.max(0, parseInt(String(req.query.offset ?? "0"), 10) || 0);
@@ -651,6 +668,14 @@ export async function registerRoutes(
       const fim = hoje.toISOString().slice(0, 10);
       const inicioDate = new Date(hoje.getTime() - dias * 24 * 60 * 60 * 1000);
       const inicio = inicioDate.toISOString().slice(0, 10);
+
+      // Registrar antes da coleta: interrupções ficam visíveis como execução sem término.
+      const log = await pool.query<{ id: string }>(
+        `INSERT INTO public.painel_djen_logs
+         (iniciado_em, status, lote_offset, janela_inicio, janela_fim)
+         VALUES (now(), 'em_andamento', $1, $2, $3) RETURNING id`,
+        [offset, inicio, fim]);
+      logId = log.rows[0].id;
 
       // Lista processos pelo ID ascendente (paginado). Query direta ao
       // pool pra evitar carregar snapshots (que não precisamos aqui).
@@ -743,7 +768,14 @@ export async function registerRoutes(
       const concluido = procs.length < limite;
       const proximoOffset = offset + procs.length;
 
+      await pool.query(`UPDATE public.painel_djen_logs SET finalizado_em=now(),
+        status=$2, processos=$3, novidades=$4, erros=$5, rate_limits=$6,
+        respostas_invalidas=$7, falhas=$8::jsonb WHERE id=$1`,
+        [logId, erros === 0 ? "sem_erros" : erros === procs.length ? "falha" : "parcial",
+         procs.length, totalNovas, erros, erros429, errosRespostaInvalida, JSON.stringify(falhas)]);
+
       res.json({
+        logId,
         janela: { inicio, fim, dias },
         processados: procs.length,
         novasPublicacoes: totalNovas,
@@ -758,6 +790,12 @@ export async function registerRoutes(
         concluido,
       });
     } catch (e: any) {
+      if (logId) {
+        await pool.query(`UPDATE public.painel_djen_logs SET finalizado_em=now(),
+          status='falha', erros=GREATEST(erros,1),
+          falhas=falhas || '[{"codigo":"COLETA_OU_LOG_FALHOU"}]'::jsonb WHERE id=$1`, [logId])
+          .catch(() => console.error("Falha ao finalizar log DJEN"));
+      }
       console.error("publicacoes/atualizar erro geral:", e);
       res.status(500).json({ erro: "Falha temporária no servidor. Tente novamente." });
     }
