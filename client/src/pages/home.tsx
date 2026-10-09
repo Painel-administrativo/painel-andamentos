@@ -436,23 +436,23 @@ export default function Home() {
 
       <main className="mx-auto max-w-[1280px] px-4 sm:px-6 py-6">
         {/* Barra de controle */}
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-5">
-          <Tabs className="min-w-0 w-full sm:w-auto sm:max-w-full" value={aba} onValueChange={(v) => setAba(v as any)}>
-            <TabsList className="h-10 w-full justify-start overflow-x-auto flex-nowrap sm:w-auto">
-              <TabsTrigger value="painel" data-testid="tab-painel">
+        <div className="flex flex-col gap-3 mb-5">
+          <Tabs className="min-w-0 w-full" value={aba} onValueChange={(v) => setAba(v as any)}>
+            <TabsList className="h-auto min-h-10 w-full grid grid-cols-2 gap-1 sm:grid-cols-4">
+              <TabsTrigger className="min-w-0 whitespace-normal px-2 text-xs sm:text-sm" value="painel" data-testid="tab-painel">
                 Painel de andamentos
               </TabsTrigger>
-              <TabsTrigger value="processos" data-testid="tab-processos">
+              <TabsTrigger className="min-w-0 whitespace-normal px-2 text-xs sm:text-sm" value="processos" data-testid="tab-processos">
                 Meus processos
                 {processos.length > 0 && (
                   <span className="ml-1.5 text-xs text-muted-foreground">({processos.length})</span>
                 )}
               </TabsTrigger>
-              <TabsTrigger value="publicacoes" data-testid="tab-publicacoes">
+              <TabsTrigger className="min-w-0 whitespace-normal px-2 text-xs sm:text-sm" value="publicacoes" data-testid="tab-publicacoes">
                 Publicações
                 <BadgeNaoLidas />
               </TabsTrigger>
-              <TabsTrigger value="logs" data-testid="tab-logs">Histórico DJEN</TabsTrigger>
+              <TabsTrigger className="min-w-0 whitespace-normal px-2 text-xs sm:text-sm" value="logs" data-testid="tab-logs">Histórico DJEN</TabsTrigger>
             </TabsList>
           </Tabs>
 
