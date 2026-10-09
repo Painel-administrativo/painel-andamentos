@@ -52,11 +52,24 @@ export function HistoricoDjen() {
   }
   const query = useQuery<Log[]>({ queryKey: ["/api/monitoramento/logs"], staleTime: 30000, refetchInterval: 60000 });
   const grupos = new Map<string, Log[]>();
-  for (const log of query.data || []) {
-    const key = log.rodada_id || `lote-${log.id}`;
-    grupos.set(key, [...(grupos.get(key) || []), log]);
+  // Compatibilidade com páginas antigas e executores sem UUID. Agrupamento
+  // visual inferido; nunca altera os logs nem certifica uma rodada completa.
+  let previous: Log | undefined;
+  let legacyKey = "";
+  for (const log of [...(query.data || [])].reverse()) {
+    let key = log.rodada_id;
+    if (!key) {
+      const gap = previous ? Date.parse(log.iniciado_em) - Date.parse(previous.iniciado_em) : Infinity;
+      const continuous = previous && !previous.rodada_id && log.lote_offset > 0 &&
+        previous.processos > 0 && log.lote_offset === previous.lote_offset + previous.processos &&
+        gap >= 0 && gap <= 5 * 60_000;
+      if (!continuous) legacyKey = `sequencia-${log.id}`;
+      key = legacyKey;
+    }
+    grupos.set(key, [log, ...(grupos.get(key) || [])]);
+    previous = log;
   }
-  const linhas = Array.from(grupos.entries()).map(([id, lotes]) => {
+  const linhas = Array.from(grupos.entries()).reverse().map(([id, lotes]) => {
     const oldest = lotes[lotes.length - 1];
     return { ...oldest, id, lotes,
       processos: lotes.reduce((n,l) => n+l.processos,0),
@@ -71,7 +84,7 @@ export function HistoricoDjen() {
   return <section className="mb-6 rounded-xl border bg-card p-5" aria-label="Histórico de atualizações">
     <div className="flex items-start justify-between gap-4">
       <div><h2 className="font-semibold">Histórico de atualizações</h2>
-        <p className="text-sm text-muted-foreground">Uma linha por atualização manual. Histórico de até 200 lotes dos últimos 7 dias; registros antigos e automações sem identificação aparecem por lote. Falhas indicam consultas inconclusivas. Ausência de erros não comprova cobertura integral do DJEN.</p></div>
+        <p className="text-sm text-muted-foreground">Uma linha por atualização. Registros sem identificador são agrupados pela sequência de lotes e horários. Histórico de até 200 lotes dos últimos 7 dias. Falhas indicam consultas inconclusivas. Ausência de erros não comprova cobertura integral do DJEN.</p></div>
       <Button variant="outline" size="icon" aria-label="Atualizar histórico" disabled={query.isFetching} onClick={() => query.refetch()}>
         <RefreshCw className={`h-4 w-4 ${query.isFetching ? "animate-spin" : ""}`} />
       </Button>
@@ -94,7 +107,7 @@ export function HistoricoDjen() {
           <td className="border-b p-2 whitespace-nowrap">{new Date(log.iniciado_em).toLocaleString("pt-BR", { timeZone: "America/Sao_Paulo", dateStyle: "short", timeStyle: "short" })}</td>
           <td className="border-b p-2"><details><summary className="cursor-pointer">{log.lotes.length} lote(s)</summary>
             <ul className="min-w-48">{log.lotes.map(l => <li key={l.id}>Lote {l.lote_offset}: {l.processos} processos, {l.novidades} novidades, {l.erros} erros</li>)}</ul>
-            <p className="text-xs text-muted-foreground">Totais dos lotes disponíveis neste histórico.</p>
+            <p className="text-xs text-muted-foreground">{log.rodada_id ? "Atualização identificada." : "Agrupamento inferido por sequência; consultas simultâneas podem aparecer separadas."} Totais dos lotes disponíveis neste histórico.</p>
           </details></td><td className="border-b p-2">{log.processos}</td>
           <td className="border-b p-2 text-emerald-600">{log.novidades}</td>
           <td className="border-b p-2">{log.rate_limits}</td>
