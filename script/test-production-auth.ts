@@ -33,6 +33,8 @@ async function main() {
       expires_at: Math.floor(Date.now()/1000)+3600,
       user: { id: config.adminId, email: config.adminEmail, email_confirmed_at: new Date().toISOString() } } as any;
   });
+  app.post("/api/publicacoes/1/whatsapp", (_req, res) => res.json({ ok: true }));
+  app.get("/api/whatsapp/config", (_req, res) => res.json({ configurado: false }));
   app.get("/api/processos", (_req, res) => res.json({ ok: true }));
   app.post("/api/processos/atualizar", (_req, res) => res.json({ ok: true }));
   app.delete("/api/processos/1", (_req, res) => res.json({ ok: true }));
@@ -55,6 +57,9 @@ async function main() {
     }, "__Host-painel-session");
   }
   try {
+    await request("/api/whatsapp/config", 401);
+    await request("/api/publicacoes/1/whatsapp", 401, { method: "POST", headers: { Origin: config.origin!, "Content-Type": "application/json" }, body: "{}" });
+    await request("/api/publicacoes/1/whatsapp", 401, { method: "POST", headers: { "x-automation-token": config.automationKey!, "Content-Type": "application/json" }, body: "{}" });
     await request("/api/processos", 401);
     await request("/api/publicacoes/1/publica?token=old", 401);
     await request("/api/processos", 401, { headers: { "x-api-key": "old-key" } });
@@ -75,6 +80,8 @@ async function main() {
     await request("/api/processos", 401, { headers: { cookie: refreshCookie } });
     refuseRefresh = false;
     const session = await cookie();
+    await request("/api/publicacoes/1/whatsapp", 403, { method: "POST", headers: { cookie: session, Origin: "https://evil.example", "Content-Type": "application/json" }, body: "{}" });
+    await request("/api/publicacoes/1/whatsapp", 200, { method: "POST", headers: { cookie: session, Origin: config.origin!, "Content-Type": "application/json" }, body: "{}" });
     await request("/api/processos", 200, { headers: { cookie: session } });
     await request("/api/processos/atualizar", 403, { method: "POST", headers: { cookie: session, Origin: "https://evil.example", "Content-Type": "application/json" }, body: "{}" });
     await request("/api/processos/atualizar", 200, { method: "POST", headers: { cookie: session, Origin: config.origin!, "Content-Type": "application/json" }, body: "{}" });

@@ -6,6 +6,7 @@ import { storage, pool } from "./storage";
 import { insertProcessoInputSchema, type DatajudSource, TRIBUNAIS } from "@shared/schema";
 import { z } from "zod";
 import { createProductionAuth } from "./auth";
+import { registrarWebhookMeta, registrarEnviosMeta } from "./whatsapp";
 import { DjenResponseError, lerRespostaDjen } from "./djen-response";
 
 // Segredo para tokens opacos de publicações públicas (usadas em links WhatsApp).
@@ -134,6 +135,8 @@ export async function registerRoutes(
   httpServer: Server,
   app: Express
 ): Promise<Server> {
+  // Meta callbacks authenticate through their signature, before session middleware.
+  registrarWebhookMeta(app, pool);
   // Auth is always fail-closed. Old public publication URLs are protected too.
   app.use(createProductionAuth({
     url: process.env.SUPABASE_URL,
@@ -165,6 +168,8 @@ export async function registerRoutes(
   }));
 
   // Histórico privado: somente a sessão autenticada pode ler esta rota.
+  registrarEnviosMeta(app, pool, id => storage.getPublicacaoPublicaPorId(id));
+
   app.get("/api/monitoramento/logs", async (_req, res) => {
     try {
       const { rows } = await pool.query(`SELECT id, iniciado_em, finalizado_em,
