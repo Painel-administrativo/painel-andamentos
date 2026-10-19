@@ -1,3 +1,4 @@
+import { EnviarWhatsApp } from "./EnviarWhatsApp";
 import { useState, useCallback, useEffect, useRef, useMemo } from "react";
 import { useInfiniteQuery, useQuery, useMutation } from "@tanstack/react-query";
 import { apiRequest, queryClient } from "@/lib/queryClient";
@@ -274,7 +275,8 @@ function AnotacaoBloco({ pub, feriados, onSalvar, onToast }: AnotacaoBlocoProps)
         >
           Minha anotação
         </label>
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center justify-end gap-2">
+          <EnviarWhatsApp pub={pub} anotacao={valor} />
           <span className="text-[10px] text-muted-foreground min-w-[54px] text-right">
             {salvando === "pendente" ? "salvando…" : salvando === "salvo" ? "salvo" : ""}
           </span>

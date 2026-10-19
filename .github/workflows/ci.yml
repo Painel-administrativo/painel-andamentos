@@ -30,12 +30,18 @@ jobs:
       - name: Testes de autenticação
         run: npx tsx script/test-production-auth.ts
 
+      - name: Testes da integração Meta WhatsApp
+        run: node --import tsx script/test-meta-whatsapp.ts
+
       - name: Build do projeto
         env:
           # Valores dummy só para o build compilar. Não são usados em runtime.
           SUPABASE_URL: https://dummy.supabase.co
           SUPABASE_ANON_KEY: dummy-key-for-build
         run: npm run build
+
+      - name: Verificar webhook no handler da Vercel
+        run: node script/build-api.mjs && node script/test-meta-bundle.mjs
 
       - name: Confirmar bundle gerado
         run: |
