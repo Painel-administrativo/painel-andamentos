@@ -43,6 +43,8 @@ async function main() {
   app.post("/api/relatorios/grupos", (_req, res) => res.json({ok:true}));
   app.post("/api/relatorios/1/coletar", (_req, res) => res.json({ok:true}));
   app.post("/api/relatorios/1/conferir", (_req, res) => res.json({ok:true}));
+  app.patch("/api/publicacoes/1/prazo-manual", (_req,res)=>res.json({ok:true}));
+  app.get("/api/publicacoes/1/prazo-manual/historico", (_req,res)=>res.json({items:[]}));
   app.get("/api/processos", (_req, res) => res.json({ ok: true }));
   app.post("/api/processos/atualizar", (_req, res) => res.json({ ok: true }));
   app.delete("/api/processos/1", (_req, res) => res.json({ ok: true }));
@@ -65,6 +67,8 @@ async function main() {
     }, "__Host-painel-session");
   }
   try {
+    await request("/api/publicacoes/1/prazo-manual/historico",401);
+    await request("/api/publicacoes/1/prazo-manual",401,{method:"PATCH",headers:{"x-automation-token":config.automationKey!,"Content-Type":"application/json"},body:"{}"});
     await request("/api/relatorios/grupos", 401);
     await request("/api/relatorios/grupos", 401, {headers:{"x-automation-token":config.automationKey!}});
     await request("/api/relatorios/1/coletar", 401, {method:"POST",headers:{"Content-Type":"application/json","x-automation-token":config.automationKey!},body:"{}"});
@@ -97,6 +101,9 @@ async function main() {
     await request("/api/processos", 401, { headers: { cookie: refreshCookie } });
     refuseRefresh = false;
     const session = await cookie();
+    await request("/api/publicacoes/1/prazo-manual/historico",200,{headers:{cookie:session}});
+    await request("/api/publicacoes/1/prazo-manual",403,{method:"PATCH",headers:{cookie:session,Origin:"https://evil.example","Content-Type":"application/json"},body:"{}"});
+    await request("/api/publicacoes/1/prazo-manual",200,{method:"PATCH",headers:{cookie:session,Origin:config.origin!,"Content-Type":"application/json"},body:"{}"});
     await request("/api/relatorios/grupos", 200, {headers:{cookie:session}});
     await request("/api/relatorios/grupos", 403, {method:"POST",headers:{cookie:session,Origin:"https://evil.example","Content-Type":"application/json"},body:"{}"});
     await request("/api/publicacoes/1/whatsapp", 403, { method: "POST", headers: { cookie: session, Origin: "https://evil.example", "Content-Type": "application/json" }, body: "{}" });

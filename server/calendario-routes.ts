@@ -55,7 +55,7 @@ export async function revisar(pool:Pool,id:string,input:z.infer<typeof revisaoSc
    // Existing verified exception remains part of the baseline until deliberately migrated.
    const fixas:RegraCalendario[]=SUSPENSOES_CONFIRMADAS.map(r=>({ato:r.ato,motivo:r.ato,inicio:r.data,fim:r.data,alcance:"tribunal",origem:null,local:"TJRJ",efeito:"dia_nao_util"}));
    const pubs=await db.query(`SELECT p.id,pr.numero,p.raw_json->>'siglaTribunal' AS sigla,to_char(p.data_disponibilizacao,'YYYY-MM-DD') AS disponibilizacao,
-     p.prazo_dias AS dias,p.prazo_tipo AS tipo,p.informado_em IS NOT NULL AS ja_informada FROM public.publicacoes p JOIN public.processos pr ON pr.id=p.processo_id WHERE p.prazo_dias>0 AND p.prazo_tipo IN('uteis','corridos')`);
+     p.prazo_dias AS dias,p.prazo_tipo AS tipo,p.informado_em IS NOT NULL AS ja_informada FROM public.publicacoes p JOIN public.processos pr ON pr.id=p.processo_id WHERE p.prazo_manual IS NULL AND p.prazo_dias>0 AND p.prazo_tipo IN('uteis','corridos')`);
    for(const pub of pubs.rows) {
     const a=resumoPrazo(pub,base,[...fixas,...antes]),b=resumoPrazo(pub,base,[...fixas,...depois]);
     if(a && b && JSON.stringify(a)!==JSON.stringify(b)) {

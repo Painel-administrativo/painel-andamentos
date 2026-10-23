@@ -14,19 +14,22 @@ const handler = source.slice(
 assert.ok(handler.includes("navigator.clipboard.writeText"));
 const js = ts.transpile(handler, { target: ts.ScriptTarget.ES2022 });
 
-async function message(anotacao, texto, pending = false) {
+async function message(anotacao, texto, pending = false, manual = null) {
   let copied;
   let saves = 0;
   const sandbox = {
     pub: { id: 1, processoApelido: "Processo de teste", processoNumero: "123",
       tipoDocumento: "Despacho", dataDisponibilizacao: "2026-10-06",
-      prazoDias: null, prazoTipo: null, texto },
+      prazoDias: null, prazoTipo: null, prazoManual: manual, texto },
     suspensoes: new Set(), calendarioDisponivel: true, valor: anotacao, feriados: [], timerRef: { current: pending ? 1 : null },
     window: { clearTimeout() {}, setTimeout() {} },
     setSalvando() {}, onSalvar() { saves++; }, onToast() {},
     formatarCNJ: () => "0000000-00.2026.0.00.0000",
     formatarDataPub: () => "06/10",
     calcularDatasPrazo: () => ({ publicacaoStr: "07/10", inicioStr: "08/10" }),
+    dataPrazoManual: v => new Date(`${v}T00:00:00Z`),
+    formatarBR: d => d.toISOString().slice(0,10).split("-").reverse().join("/"),
+    diaSemanaBR: () => "sexta",
     limparTexto: (value) => value || "",
     navigator: { clipboard: { async writeText(value) { copied = value; } } },
   };
@@ -54,3 +57,8 @@ const multiline = await message("Observação inicial.\nProvidenciar: Documentos
 assert.ok(multiline.indexOf("_Despacho._") < multiline.indexOf("*Ação:* Documentos."));
 assert.ok(multiline.includes("› Observação inicial.\n› Segunda observação."));
 console.log("PASS: texto antes da recomendação; observações ao final; sem anotação; sem texto; debounce; formatação e ausência de link preservados.");
+
+const adjusted = await message("Avaliar recurso.", "Despacho.", false, "2026-11-06");
+assert.ok(adjusted.includes("Prazo ajustado manualmente: termina 06/11/2026 (sexta)"));
+assert.ok(!adjusted.includes("Prazo começa:"));
+console.log("PASS: clipboard uses the saved manual deadline instead of the automatic date.");

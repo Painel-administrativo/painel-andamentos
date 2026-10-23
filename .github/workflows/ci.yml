@@ -36,6 +36,9 @@ jobs:
       - name: Testes dos relatórios por escritório
         run: node --import tsx script/test-relatorios.ts && node --import tsx script/test-relatorios-coleta.ts
 
+      - name: Testes do ajuste manual de prazo
+        run: node --import tsx script/test-prazo-manual.ts
+
       - name: Testes de autenticação
         run: npx tsx script/test-production-auth.ts
 

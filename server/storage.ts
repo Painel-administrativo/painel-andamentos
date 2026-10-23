@@ -102,6 +102,8 @@ interface PublicacaoRow {
   lido_em: string | null;
   informado_em: string | null;
   anotacao: string | null;
+  prazo_manual: string | null;
+  prazo_manual_versao: number;
   prazo_dias: number | null;
   prazo_tipo: 'uteis' | 'corridos' | null;
 }
@@ -129,6 +131,8 @@ function mapPublicacao(r: PublicacaoRow): Publicacao {
     lidoEm: r.lido_em,
     informadoEm: r.informado_em,
     anotacao: r.anotacao,
+    prazoManual: r.prazo_manual,
+    prazoManualVersao: r.prazo_manual_versao,
     prazoDias: r.prazo_dias,
     prazoTipo: r.prazo_tipo,
   };
@@ -400,7 +404,7 @@ export class PgStorage implements IStorage {
               p.tipo_comunicacao, p.tipo_documento, p.nome_orgao, p.nome_classe,
               p.raw_json->>'siglaTribunal' AS sigla_tribunal,
               p.texto, p.link, p.numero_comunicacao, p.criado_em, p.lido_em, p.informado_em, p.anotacao,
-              p.prazo_dias, p.prazo_tipo,
+              p.prazo_dias, p.prazo_tipo, to_char(p.prazo_manual,'YYYY-MM-DD') AS prazo_manual, p.prazo_manual_versao,
               pr.apelido AS processo_apelido, pr.numero AS processo_numero
          FROM publicacoes p
          JOIN processos pr ON pr.id = p.processo_id
@@ -424,7 +428,7 @@ export class PgStorage implements IStorage {
               tipo_comunicacao, tipo_documento, nome_orgao, nome_classe,
               raw_json->>'siglaTribunal' AS sigla_tribunal,
               texto, link, numero_comunicacao, criado_em, lido_em, informado_em, anotacao,
-              prazo_dias, prazo_tipo
+              prazo_dias, prazo_tipo, to_char(prazo_manual,'YYYY-MM-DD') AS prazo_manual, prazo_manual_versao
        FROM publicacoes
        WHERE id = $1
        LIMIT 1`,
@@ -440,7 +444,7 @@ export class PgStorage implements IStorage {
               tipo_comunicacao, tipo_documento, nome_orgao, nome_classe,
               raw_json->>'siglaTribunal' AS sigla_tribunal,
               texto, link, numero_comunicacao, criado_em, lido_em, informado_em, anotacao,
-              prazo_dias, prazo_tipo
+              prazo_dias, prazo_tipo, to_char(prazo_manual,'YYYY-MM-DD') AS prazo_manual, prazo_manual_versao
        FROM publicacoes
        WHERE processo_id = $1
        ORDER BY data_disponibilizacao DESC, id DESC`,
@@ -455,7 +459,7 @@ export class PgStorage implements IStorage {
               tipo_comunicacao, tipo_documento, nome_orgao, nome_classe,
               raw_json->>'siglaTribunal' AS sigla_tribunal,
               texto, link, numero_comunicacao, criado_em, lido_em, informado_em, anotacao,
-              prazo_dias, prazo_tipo
+              prazo_dias, prazo_tipo, to_char(prazo_manual,'YYYY-MM-DD') AS prazo_manual, prazo_manual_versao
        FROM publicacoes
        WHERE criado_em >= $1
        ORDER BY criado_em DESC, id DESC`,
@@ -509,7 +513,7 @@ export class PgStorage implements IStorage {
               pub.tipo_comunicacao, pub.tipo_documento, pub.nome_orgao, pub.nome_classe,
               pub.raw_json->>'siglaTribunal' AS sigla_tribunal,
               pub.texto, pub.link, pub.numero_comunicacao, pub.criado_em, pub.lido_em, pub.informado_em, pub.anotacao,
-              pub.prazo_dias, pub.prazo_tipo,
+              pub.prazo_dias, pub.prazo_tipo, to_char(pub.prazo_manual,'YYYY-MM-DD') AS prazo_manual, pub.prazo_manual_versao,
               pr.apelido AS processo_apelido, pr.numero AS processo_numero
        FROM publicacoes pub
        JOIN processos pr ON pr.id = pub.processo_id
