@@ -1,3 +1,5 @@
+import { montarCalendario, type RegraCalendario } from "@shared/calendario";
+import { calcularDatasPrazo, calcularFimPrazo, formatarBR, diaSemanaBR } from "@shared/prazos";
 import { feriadosParaTribunal } from "@/lib/calendario-forense";
 import { EnviarWhatsApp } from "./EnviarWhatsApp";
 import { useState, useCallback, useEffect, useRef, useMemo } from "react";
@@ -35,10 +37,11 @@ interface InputPrazoProps {
   pub: PublicacaoComProcesso;
   inicio: Date;
   feriados: Set<string>;
+  suspensoes: Set<string>;
   onSalvar: (dias: number | null, tipo: "uteis" | "corridos" | null) => void;
 }
 
-function InputPrazo({ pub, inicio, feriados, onSalvar }: InputPrazoProps) {
+function InputPrazo({ pub, inicio, feriados, suspensoes, onSalvar }: InputPrazoProps) {
   const [dias, setDias] = useState<string>(pub.prazoDias?.toString() ?? "");
   const [tipo, setTipo] = useState<"uteis" | "corridos">(pub.prazoTipo ?? "uteis");
   const timerRef = useRef<number | null>(null);
@@ -54,8 +57,8 @@ function InputPrazo({ pub, inicio, feriados, onSalvar }: InputPrazoProps) {
 
   const fim = useMemo(() => {
     if (!diasValido || diasNum === null) return null;
-    return calcularFimPrazo(inicio, diasNum, tipo, feriados);
-  }, [diasValido, diasNum, inicio, tipo, feriados]);
+    return calcularFimPrazo(inicio, diasNum, tipo, feriados, suspensoes);
+  }, [diasValido, diasNum, inicio, tipo, feriados, suspensoes]);
 
   // Debounce de 600ms pra salvar
   const salvarComDebounce = (novoDias: string, novoTipo: "uteis" | "corridos") => {
@@ -127,11 +130,12 @@ interface AnotacaoBlocoProps {
   pub: PublicacaoComProcesso;
   feriados: Set<string>;
   calendarioDisponivel: boolean;
+  suspensoes: Set<string>;
   onSalvar: (id: number, anotacao: string) => void;
   onToast: (t: { title: string; description?: string; variant?: "destructive" }) => void;
 }
 
-function AnotacaoBloco({ pub, feriados, calendarioDisponivel, onSalvar, onToast }: AnotacaoBlocoProps) {
+function AnotacaoBloco({ pub, feriados, suspensoes, calendarioDisponivel, onSalvar, onToast }: AnotacaoBlocoProps) {
   const [valor, setValor] = useState(pub.anotacao ?? "");
   const [salvando, setSalvando] = useState<"idle" | "pendente" | "salvo">("idle");
   const timerRef = useRef<number | null>(null);
@@ -171,7 +175,7 @@ function AnotacaoBloco({ pub, feriados, calendarioDisponivel, onSalvar, onToast 
     const cnj = formatarCNJ(pub.processoNumero);
     const tipoDoc = pub.tipoDocumento || "Publicação";
     const dataDisp = formatarDataPub(pub.dataDisponibilizacao);
-    const datasPrazo = calcularDatasPrazo(pub.dataDisponibilizacao, feriados);
+    const datasPrazo = calcularDatasPrazo(pub.dataDisponibilizacao, feriados, suspensoes);
     const anot = (valor || "").trim();
     const textoPub = limparTexto(pub.texto);
 
@@ -208,7 +212,8 @@ function AnotacaoBloco({ pub, feriados, calendarioDisponivel, onSalvar, onToast 
           datasPrazo.inicio,
           pub.prazoDias,
           pub.prazoTipo,
-          feriados
+          feriados,
+          suspensoes
         );
         if (fim) {
           const fimStr = formatarBR(fim).slice(0, 5);
@@ -788,13 +793,6 @@ function limparTexto(t: string | null): string {
 }
 
 // Retorna a data no formato DD/MM/AAAA a partir de um objeto Date.
-function formatarBR(d: Date): string {
-  const dia = String(d.getUTCDate()).padStart(2, "0");
-  const mes = String(d.getUTCMonth() + 1).padStart(2, "0");
-  const ano = d.getUTCFullYear();
-  return `${dia}/${mes}/${ano}`;
-}
-
 // Retorna DD/MM/AAAA a partir de um ISO 8601 (timestamptz).
 // Usa fuso local do navegador para exibir a data que o usuário percebe.
 function formatarISOLocalBR(iso: string | null): string {
@@ -805,84 +803,6 @@ function formatarISOLocalBR(iso: string | null): string {
   const mes = String(d.getMonth() + 1).padStart(2, "0");
   const ano = d.getFullYear();
   return `${dia}/${mes}/${ano}`;
-}
-
-// É dia útil = não é fim de semana nem feriado.
-function ehDiaUtil(d: Date, feriados: Set<string>): boolean {
-  const wd = d.getUTCDay(); // 0=domingo, 6=sábado
-  if (wd === 0 || wd === 6) return false;
-  const iso = d.toISOString().slice(0, 10);
-  return !feriados.has(iso);
-}
-
-// Avança N dias úteis a partir de uma data (pulando fim de semana e feriados).
-function proximoDiaUtil(base: Date, pular: number, feriados: Set<string>): Date {
-  const d = new Date(base.getTime());
-  let restam = pular;
-  while (restam > 0) {
-    d.setUTCDate(d.getUTCDate() + 1);
-    if (ehDiaUtil(d, feriados)) restam -= 1;
-  }
-  return d;
-}
-
-// Retorna { publicacao, inicio } calculadas a partir da data de disponibilização.
-// Regra CPC art. 224 §3º: publicação = 1º dia útil seguinte à disponibilização;
-// início do prazo = 1º dia útil seguinte à publicação.
-// Agora considera feriados (Fase 4).
-function calcularDatasPrazo(dataDispIso: string, feriados: Set<string>): {
-  publicacao: Date;
-  inicio: Date;
-  publicacaoStr: string;
-  inicioStr: string;
-} | null {
-  const s = dataDispIso.slice(0, 10);
-  const [ano, mes, dia] = s.split("-").map(Number);
-  if (!ano || !mes || !dia) return null;
-  // Constrói em UTC pra evitar salto de fuso.
-  const disp = new Date(Date.UTC(ano, mes - 1, dia));
-  const pub = proximoDiaUtil(disp, 1, feriados);
-  const inicio = proximoDiaUtil(pub, 1, feriados);
-  return {
-    publicacao: pub,
-    inicio,
-    publicacaoStr: formatarBR(pub),
-    inicioStr: formatarBR(inicio),
-  };
-}
-
-// Nome do dia da semana em pt-BR (ex: 'sexta').
-const DIAS_SEMANA = ["domingo", "segunda", "terça", "quarta", "quinta", "sexta", "sábado"];
-function diaSemanaBR(d: Date): string {
-  return DIAS_SEMANA[d.getUTCDay()];
-}
-
-// Calcula quando o prazo termina.
-// - dias úteis: dia 1 = 'inicio'; termina em (dias-1) dias úteis à frente.
-//   Se cair em dia não útil (impossivel com essa lógica, mas defensivo), avança.
-// - corridos: dia 1 = 'inicio'; termina em (dias-1) dias à frente.
-//   Se cair em dia não útil, prorroga pro próximo útil (CPC art. 224 §1º).
-function calcularFimPrazo(
-  inicio: Date,
-  dias: number,
-  tipo: "uteis" | "corridos",
-  feriados: Set<string>
-): Date | null {
-  if (dias <= 0) return null;
-  const d = new Date(inicio.getTime());
-  if (tipo === "uteis") {
-    // Contamos o próprio 'inicio' como dia 1. Avançamos (dias - 1) dias úteis.
-    let restam = dias - 1;
-    while (restam > 0) {
-      d.setUTCDate(d.getUTCDate() + 1);
-      if (ehDiaUtil(d, feriados)) restam -= 1;
-    }
-    return d;
-  }
-  // Corridos: soma calendário, com prorrogação se cair em não útil.
-  d.setUTCDate(d.getUTCDate() + (dias - 1));
-  while (!ehDiaUtil(d, feriados)) d.setUTCDate(d.getUTCDate() + 1);
-  return d;
 }
 
 // ============================================================
@@ -952,7 +872,8 @@ export function CardPublicacoes() {
     queryKey: ["/api/feriados"],
     staleTime: 24 * 60 * 60 * 1000, // 24h — feriados não mudam com frequência
   });
-  const calendarioDisponivel = feriadosData !== undefined;
+  const regrasCalendario = useQuery<{items: RegraCalendario[]}>({queryKey:["/api/calendario/regras"],staleTime:60_000,refetchInterval:60_000});
+  const calendarioDisponivel = feriadosData !== undefined && regrasCalendario.data !== undefined;
   const feriadosBase = useMemo(
     () => new Set((feriadosData?.items ?? []).map((f) => f.data)),
     [feriadosData]
@@ -1265,7 +1186,8 @@ export function CardPublicacoes() {
       ) : (
         <ul className="divide-y divide-border" role="list">
           {publicacoes.map((pub) => {
-            const feriados = feriadosParaTribunal(feriadosBase, pub.siglaTribunal || inferirTribunal(pub.processoNumero));
+            const base = feriadosParaTribunal(feriadosBase, pub.siglaTribunal || inferirTribunal(pub.processoNumero));
+            const {feriados,suspensoes,aplicaveis} = montarCalendario(base,regrasCalendario.data?.items??[],pub.processoNumero,pub.siglaTribunal);
             const expandida = expandidas.has(pub.id);
             const naoLida = pub.lidoEm === null;
             return (
@@ -1376,7 +1298,7 @@ export function CardPublicacoes() {
                     )}
                     {/* Datas de prazo + status de leitura/comunicação */}
                     {(() => {
-                      const datas = calendarioDisponivel ? calcularDatasPrazo(pub.dataDisponibilizacao, feriados) : null;
+                      const datas = calendarioDisponivel ? calcularDatasPrazo(pub.dataDisponibilizacao, feriados, suspensoes) : null;
                       return (
                         <div
                           className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs"
@@ -1388,8 +1310,8 @@ export function CardPublicacoes() {
                           </span>
                           {!calendarioDisponivel && (
                             <span role="status">
-                              {erroCalendario ? "Calendário indisponível — prazo ainda não calculado." : "Aguardando calendário de feriados — prazo ainda não calculado."}
-                              {erroCalendario && <button type="button" className="ml-2 underline" onClick={() => void recarregarCalendario()}>Tentar novamente</button>}
+                              {(erroCalendario || regrasCalendario.isError) ? "Calendário indisponível — prazo ainda não calculado." : "Aguardando calendário de feriados — prazo ainda não calculado."}
+                              {(erroCalendario || regrasCalendario.isError) && <button type="button" className="ml-2 underline" onClick={() => {void recarregarCalendario();void regrasCalendario.refetch();}}>Tentar novamente</button>}
                             </span>
                           )}
                           {datas && (
@@ -1408,6 +1330,7 @@ export function CardPublicacoes() {
                                 pub={pub}
                                 inicio={datas.inicio}
                                 feriados={feriados}
+                                suspensoes={suspensoes}
                                 onSalvar={(dias, tipo) =>
                                   salvarPrazoMut.mutate({
                                     id: pub.id,
@@ -1468,7 +1391,9 @@ export function CardPublicacoes() {
                     >
                       {limparTexto(pub.texto) || <em className="text-muted-foreground">Sem texto disponível.</em>}
                     </div>
+                    {aplicaveis.length>0 && <details className="text-xs border rounded p-2"><summary>Calendário confirmado para este processo ({aplicaveis.length} atos)</summary>{aplicaveis.map((r,i)=><p key={r.id||i} className="mt-1">{r.inicio} a {r.fim} · {r.ato} · {r.local} · {r.efeito === "dia_nao_util" ? "Dias não úteis" : r.efeito === "suspensao_prazo" ? "Suspensão da contagem" : "Apenas informativo"} {r.fonte&&<a href={r.fonte} target="_blank" rel="noreferrer" className="underline">Fonte</a>}</p>)}</details>}
                     <AnotacaoBloco
+                      suspensoes={suspensoes}
                       calendarioDisponivel={calendarioDisponivel}
                       pub={pub}
                       feriados={feriados}

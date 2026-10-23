@@ -1,3 +1,4 @@
+import { registrarCalendario } from "./calendario-routes";
 import type { Express } from "express";
 import { createServer } from "node:http";
 import type { Server } from "node:http";
@@ -169,6 +170,7 @@ export async function registerRoutes(
 
   // Histórico privado: somente a sessão autenticada pode ler esta rota.
   registrarEnviosMeta(app, pool, id => storage.getPublicacaoPublicaPorId(id));
+  registrarCalendario(app, pool);
 
   app.get("/api/monitoramento/logs", async (_req, res) => {
     try {

@@ -21,7 +21,7 @@ async function message(anotacao, texto, pending = false) {
     pub: { id: 1, processoApelido: "Processo de teste", processoNumero: "123",
       tipoDocumento: "Despacho", dataDisponibilizacao: "2026-10-06",
       prazoDias: null, prazoTipo: null, texto },
-    calendarioDisponivel: true, valor: anotacao, feriados: [], timerRef: { current: pending ? 1 : null },
+    suspensoes: new Set(), calendarioDisponivel: true, valor: anotacao, feriados: [], timerRef: { current: pending ? 1 : null },
     window: { clearTimeout() {}, setTimeout() {} },
     setSalvando() {}, onSalvar() { saves++; }, onToast() {},
     formatarCNJ: () => "0000000-00.2026.0.00.0000",

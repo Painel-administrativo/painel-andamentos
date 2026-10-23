@@ -1,0 +1,40 @@
+import assert from "node:assert/strict";
+import {readFileSync} from "node:fs";
+import {urlOficial,baixarDocumento,pdfNoVisualizador,extrairPropostas,lerPdf,linkCaderno} from "../server/calendario-importacao";
+import {regraSchema,montarCalendario,resumoPrazo,type RegraCalendario} from "../shared/calendario";
+import {calcularDatasPrazo,formatarBR} from "../shared/prazos";
+
+for(const bad of ['http://www.tjrj.jus.br/documents/a','https://www.tjrj.jus.br.evil.com/documents/a','https://127.0.0.1/documents/a','https://user:pass@www.tjrj.jus.br/documents/a','https://www.tjrj.jus.br:444/documents/a','https://www.tjrj.jus.br/admin']) assert.throws(()=>urlOficial(bad));
+assert.ok(linkCaderno('2026-10-23').includes('23/10/2026'));assert.throws(()=>linkCaderno('2026-02-30'));
+const source='https://www3.tjrj.jus.br/consultadje/pdf.aspx?dtPub=23/10/2026&caderno=A&pagina=-1';
+assert.ok(pdfNoVisualizador('<input id="hdnPrintUrl" value="/CONSULTADJE/Handlers/DownloadPdf.ashx?guid=a&amp;pagina=-1"/>',source).includes('&pagina=-1'));
+assert.throws(()=>pdfNoVisualizador('<input id="hdnPrintUrl" value="https://evil.com/pdf"/>',source));
+let chamadas=0;
+const b=await baixarDocumento(source,async()=>{chamadas++;return chamadas===1?new Response('<input id="hdnPrintUrl" value="/CONSULTADJE/Handlers/DownloadPdf.ashx?guid=a"/>'):new Response('%PDF-test');});
+assert.equal(b.bytes.toString(),'%PDF-test');assert.equal(chamadas,2);
+await assert.rejects(()=>baixarDocumento(source,async()=>new Response(null,{status:302,headers:{location:'https://evil.com/document'}})));
+await assert.rejects(()=>baixarDocumento(source,async()=>new Response('Unavailable',{status:503})));
+await assert.rejects(()=>baixarDocumento(source,async()=>new Response('not a PDF')));
+await assert.rejects(()=>baixarDocumento(source,async()=>new Response('x',{headers:{'content-length':'8000001'}})));
+const propostas=extrairPropostas(['AVISO 290/2026\nResolve suspender o expediente em 30/10/2026.','Sem assuntos relacionados.']);
+assert.equal(propostas.length,1);assert.equal(propostas[0].pagina,1);assert.deepEqual(propostas[0].sugestao.datas,['2026-10-30']);
+assert.equal((propostas[0] as any).status,undefined,'Extraction cannot approve anything');
+assert.equal(extrairPropostas(['Sem palavras candidatas.']).length,0);
+const regra:RegraCalendario={ato:'AVISO TESTE',motivo:'Suspensão de teste',inicio:'2026-10-30',fim:'2026-10-30',alcance:'origem',origem:'0061',local:'Teresópolis',efeito:'dia_nao_util'};
+assert.ok(regraSchema.safeParse(regra).success);
+for(const patch of [{inicio:'2026-02-30'},{fim:'2026-10-29'},{origem:null},{alcance:'tribunal'},{fim:'2028-10-30'}])assert.equal(regraSchema.safeParse({...regra,...patch}).success,false);
+const n='30013004420268190061',base=new Set(['2026-11-02']);
+assert.ok(montarCalendario(base,[regra],n,'TJRJ').feriados.has('2026-10-30'));
+assert.equal(montarCalendario(base,[regra],n,'STJ').feriados.has('2026-10-30'),false);
+assert.equal(montarCalendario(base,[regra],n.slice(0,-4)+'0001','TJRJ').feriados.has('2026-10-30'),false);
+const pub={numero:n,sigla:'TJRJ',disponibilizacao:'2026-10-23',dias:5,tipo:'uteis' as const};
+assert.equal(resumoPrazo(pub,base,[])?.fim,'2026-11-03');assert.equal(resumoPrazo(pub,base,[regra])?.fim,'2026-11-04');
+assert.equal(resumoPrazo(pub,base,[])?.fim,'2026-11-03','Revoked rules no longer affect calculation');
+const pausa={...regra,inicio:'2026-10-26',fim:'2026-10-27',efeito:'suspensao_prazo' as const};
+const c=montarCalendario(base,[pausa],n,'TJRJ');const datas=calcularDatasPrazo('2026-10-23',c.feriados,c.suspensoes)!;
+assert.equal(formatarBR(datas.publicacao),'26/10/2026','A counting-only suspension cannot postpone the publication');assert.equal(formatarBR(datas.inicio),'28/10/2026');
+assert.equal(resumoPrazo(pub,base,[{...regra,efeito:'informativo'}])?.fim,'2026-11-03');
+// Optional real official PDF: no private fixture is required for CI.
+if(process.env.TEST_PDF){const r=await lerPdf(readFileSync(process.env.TEST_PDF));assert.ok(r.paginas>0&&r.texto.length>50);console.log(`PDF real: ${r.paginas} páginas, ${r.propostas.length} candidatos, nenhuma aprovação.`);}
+const authSource=readFileSync('server/auth.ts','utf8');assert.ok(authSource.includes('"POST /api/calendario/coletar"'));assert.ok(!authSource.includes('"POST /api/calendario/importar"'));
+console.log('PASS: official URL validation, redirects/viewer, failed/oversize responses, extraction-only candidates, date/scope validation, TJRJ origin/superior separation, approval/revocation calendar effects, counting suspension vs publication date.');

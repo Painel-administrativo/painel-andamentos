@@ -30,6 +30,9 @@ jobs:
       - name: Testes de prazos e texto copiado
         run: node script/test-prazos.mjs && node script/test-whatsapp-order.mjs
 
+      - name: Testes do calendário assistido
+        run: node --import tsx script/test-calendario.ts && node --import tsx script/test-calendario-revisao.ts && node script/test-calendario-pdf.mjs
+
       - name: Testes de autenticação
         run: npx tsx script/test-production-auth.ts
 
