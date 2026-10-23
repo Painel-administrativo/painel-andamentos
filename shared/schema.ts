@@ -98,6 +98,8 @@ export interface Publicacao {
   lidoEm: string | null; // ISO 8601, NULL quando ainda não foi lida
   informadoEm: string | null; // ISO 8601, NULL quando ainda não foi informada ao cliente
   anotacao: string | null; // Anotação livre do usuário sobre a publicação
+  prazoManual?: string | null; // Data final expressamente ajustada pelo revisor
+  prazoManualVersao?: number;
   prazoDias: number | null; // Número de dias do prazo (informado manualmente)
   prazoTipo: 'uteis' | 'corridos' | null; // Tipo de contagem do prazo
   tokenPublico?: string; // Token opaco anexado pelo backend em GET /api/publicacoes (link WhatsApp)

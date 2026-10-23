@@ -1,3 +1,5 @@
+import {AjustarPrazoManual} from "./AjustarPrazoManual";
+import {fimEfetivo,dataPrazoManual} from "@shared/prazo-manual";
 import { montarCalendario, type RegraCalendario } from "@shared/calendario";
 import { calcularDatasPrazo, calcularFimPrazo, formatarBR, diaSemanaBR } from "@shared/prazos";
 import { feriadosParaTribunal } from "@/lib/calendario-forense";
@@ -55,10 +57,12 @@ function InputPrazo({ pub, inicio, feriados, suspensoes, onSalvar }: InputPrazoP
   const diasNum = dias === "" ? null : parseInt(dias, 10);
   const diasValido = diasNum !== null && !Number.isNaN(diasNum) && diasNum > 0 && diasNum <= 365;
 
-  const fim = useMemo(() => {
+  const automatico = useMemo(() => {
     if (!diasValido || diasNum === null) return null;
     return calcularFimPrazo(inicio, diasNum, tipo, feriados, suspensoes);
   }, [diasValido, diasNum, inicio, tipo, feriados, suspensoes]);
+
+  const fim = fimEfetivo(pub.prazoManual, automatico);
 
   // Debounce de 600ms pra salvar
   const salvarComDebounce = (novoDias: string, novoTipo: "uteis" | "corridos") => {
@@ -75,7 +79,7 @@ function InputPrazo({ pub, inicio, feriados, suspensoes, onSalvar }: InputPrazoP
 
   return (
     <span
-      className="inline-flex items-center gap-1.5"
+      className="inline-flex flex-wrap items-center gap-1.5"
       onClick={(e) => e.stopPropagation()}
       data-testid={`prazo-input-${pub.id}`}
     >
@@ -111,14 +115,15 @@ function InputPrazo({ pub, inicio, feriados, suspensoes, onSalvar }: InputPrazoP
       {fim && (
         <span
           className="font-medium text-primary"
-          title={`Termina ${diaSemanaBR(fim)} em ${formatarBR(fim)}${
+          title={`${pub.prazoManual ? "Data ajustada manualmente. " : ""}Termina ${diaSemanaBR(fim)} em ${formatarBR(fim)}${
             tipo === "corridos" ? " (prorrogado pra dia útil se necessário)" : ""
           }`}
           data-testid={`prazo-fim-${pub.id}`}
         >
-          → termina {formatarBR(fim)} ({diaSemanaBR(fim)})
+          → termina {formatarBR(fim)} ({diaSemanaBR(fim)}) {pub.prazoManual && "· ajuste manual"}
         </span>
       )}
+      <AjustarPrazoManual pub={pub} automatico={automatico}/>
     </span>
   );
 }
@@ -206,7 +211,10 @@ function AnotacaoBloco({ pub, feriados, suspensoes, calendarioDisponivel, onSalv
     linhas.push(linhaProcesso);
     linhas.push(linhaDoc);
 
-    if (datasPrazo) {
+    if (pub.prazoManual && dataPrazoManual(pub.prazoManual)) {
+      const manual = dataPrazoManual(pub.prazoManual)!;
+      linhas.push(`Prazo ajustado manualmente: termina ${formatarBR(manual)} (${diaSemanaBR(manual)})`);
+    } else if (datasPrazo) {
       if (pub.prazoDias && pub.prazoTipo) {
         const fim = calcularFimPrazo(
           datasPrazo.inicio,
@@ -1341,6 +1349,7 @@ export function CardPublicacoes() {
                               />
                             </>
                           )}
+                          {!datas && <><span className="font-medium">{pub.prazoManual ? `Prazo manual: ${formatarBR(dataPrazoManual(pub.prazoManual)!)}` : ""}</span><AjustarPrazoManual pub={pub} automatico={null}/></>}
                           {pub.lidoEm && (
                             <span
                               className="text-muted-foreground"

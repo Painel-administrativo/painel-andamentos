@@ -1,4 +1,5 @@
 import { registrarRelatorios } from "./relatorios-routes";
+import { registrarAjustePrazo } from "./prazo-manual-routes";
 import { registrarCalendario } from "./calendario-routes";
 import type { Express } from "express";
 import { createServer } from "node:http";
@@ -172,6 +173,7 @@ export async function registerRoutes(
   // Histórico privado: somente a sessão autenticada pode ler esta rota.
   registrarEnviosMeta(app, pool, id => storage.getPublicacaoPublicaPorId(id));
   registrarCalendario(app, pool);
+  registrarAjustePrazo(app, pool);
   registrarRelatorios(app, pool);
 
   app.get("/api/monitoramento/logs", async (_req, res) => {
@@ -837,6 +839,7 @@ export async function registerRoutes(
         dataDisponibilizacao: pub.dataDisponibilizacao,
         texto: pub.texto,
         anotacao: pub.anotacao,
+        prazoManual: pub.prazoManual,
         prazoDias: pub.prazoDias,
         prazoTipo: pub.prazoTipo,
       });

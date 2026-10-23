@@ -1,3 +1,5 @@
+import {dataPrazoManual} from "@shared/prazo-manual";
+import {formatarBR as formatarPrazoBR, diaSemanaBR as diaPrazoBR} from "@shared/prazos";
 // Página pública isolada de uma publicação — usada nos links do WhatsApp.
 // Rota: /#/pub/:idToken   (ex.: /#/pub/1234-abc123)
 //
@@ -21,6 +23,7 @@ interface PublicacaoPublica {
   dataDisponibilizacao: string;
   texto: string | null;
   anotacao: string | null;
+  prazoManual?: string | null;
   prazoDias: number | null;
   prazoTipo: "uteis" | "corridos" | null;
 }
@@ -214,6 +217,9 @@ export default function PublicacaoPublica() {
     }
   }
 
+  const manual = dataPrazoManual(pub.prazoManual);
+  if (manual) fimPrazoStr = `${formatarPrazoBR(manual)} (${diaPrazoBR(manual)})`;
+
   return (
     <div className="min-h-screen bg-background text-foreground">
       <div className="max-w-2xl mx-auto px-4 py-8 md:py-12 space-y-6">
@@ -257,12 +263,12 @@ export default function PublicacaoPublica() {
               </div>
             </>
           )}
-          {fimPrazoStr && pub.prazoDias && pub.prazoTipo && (
+          {fimPrazoStr && (
             <div>
               <span className="text-muted-foreground">Prazo termina em: </span>
               <span className="font-medium">{fimPrazoStr}</span>
               <span className="text-muted-foreground text-xs ml-1">
-                ({pub.prazoDias} dias {pub.prazoTipo})
+                {manual ? "(ajuste manual)" : `(${pub.prazoDias} dias ${pub.prazoTipo})`}
               </span>
             </div>
           )}

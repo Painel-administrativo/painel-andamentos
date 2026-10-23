@@ -1,3 +1,5 @@
+import {dataPrazoManual} from "@shared/prazo-manual";
+import {formatarBR} from "@shared/prazos";
 import { useState } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { apiRequest, queryClient } from "@/lib/queryClient";
@@ -31,7 +33,8 @@ export function EnviarWhatsApp({ pub, anotacao }: { pub: PublicacaoComProcesso; 
   const valido = nome.trim().length >= 2 && /^[1-9]\d{7,14}$/.test(digits) && resumo.trim() && curadoria.trim() &&
     resumo.length <= 500 && curadoria.length <= 350 && texto.length <= 1024 && consentimento && !existente;
   function abrir() {
-    setResumo(linha(`${pub.tipoDocumento || "Publicação"} disponibilizada em ${pub.dataDisponibilizacao}.`));
+    const manual = dataPrazoManual(pub.prazoManual);
+    setResumo(linha(`${pub.tipoDocumento || "Publicação"} disponibilizada em ${pub.dataDisponibilizacao}.${manual ? ` Prazo ajustado manualmente: ${formatarBR(manual)}.` : ""}`));
     setCuradoria(linha(anotacao)); setConsentimento(false); enviar.reset(); setAberto(true);
   }
   return <>
