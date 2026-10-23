@@ -1,3 +1,4 @@
+import { RelatoriosEscritorios } from "@/components/RelatoriosEscritorios";
 import { CalendarioSuspensoes } from "@/components/CalendarioSuspensoes";
 import { HistoricoDjen } from "@/components/HistoricoDjen";
 import { useState, useMemo, useEffect, useRef } from "react";
@@ -64,7 +65,7 @@ export default function Home() {
   const { toast } = useToast();
   const { theme, toggle } = useTheme();
 
-  const [aba, setAba] = useState<"painel" | "processos" | "publicacoes" | "logs" | "calendario">("painel");
+  const [aba, setAba] = useState<"painel" | "processos" | "publicacoes" | "logs" | "calendario" | "relatorios">("painel");
   const [busca, setBusca] = useState("");
   const [filtroTribunal, setFiltroTribunal] = useState<"Todos" | "TJRJ" | "TRF2" | "TRT1" | "TJSP" | "TJRS">("Todos");
   const [soRecentes, setSoRecentes] = useState(false);
@@ -439,7 +440,7 @@ export default function Home() {
         {/* Barra de controle */}
         <div className="flex flex-col gap-3 mb-5">
           <Tabs className="min-w-0 w-full" value={aba} onValueChange={(v) => setAba(v as any)}>
-            <TabsList className="h-auto min-h-10 w-full grid grid-cols-2 gap-1 sm:grid-cols-5">
+            <TabsList className="h-auto min-h-10 w-full grid grid-cols-2 gap-1 sm:grid-cols-6">
               <TabsTrigger className="min-w-0 whitespace-normal px-2 text-xs sm:text-sm" value="painel" data-testid="tab-painel">
                 Painel de andamentos
               </TabsTrigger>
@@ -455,6 +456,7 @@ export default function Home() {
               </TabsTrigger>
               <TabsTrigger className="min-w-0 whitespace-normal px-2 text-xs sm:text-sm" value="logs" data-testid="tab-logs">Histórico DJEN</TabsTrigger>
               <TabsTrigger className="min-w-0 whitespace-normal px-2 text-xs sm:text-sm" value="calendario">Calendário e suspensões</TabsTrigger>
+              <TabsTrigger className="min-w-0 whitespace-normal px-2 text-xs sm:text-sm" value="relatorios">Relatórios</TabsTrigger>
             </TabsList>
           </Tabs>
 
@@ -536,7 +538,7 @@ export default function Home() {
         <div hidden={aba !== "logs"}><HistoricoDjen /></div>
 
         {/* Aba "Publicações" — substitui a tabela toda */}
-        {aba === "calendario" ? <CalendarioSuspensoes /> : aba === "logs" ? null : aba === "publicacoes" ? (
+        {aba === "relatorios" ? <RelatoriosEscritorios /> : aba === "calendario" ? <CalendarioSuspensoes /> : aba === "logs" ? null : aba === "publicacoes" ? (
           <CardPublicacoes />
         ) : semProcessos ? (
           <EmptyState onAdd={() => setAddOpen(true)} onBulk={() => setBulkOpen(true)} />
