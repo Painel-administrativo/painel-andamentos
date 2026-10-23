@@ -18,7 +18,7 @@ if (!process.argv.includes("--caso")) {
   vm.runInContext(compile(readFileSync("client/src/lib/calendario-forense.ts","utf8")),calendarContext);
   const {feriadosParaTribunal} = calendarContext.exports;
   const helpersContext = vm.createContext({});
-  const helperSource = source.slice(source.indexOf("function formatarBR("), source.indexOf("// Componente principal"));
+  const helperSource = readFileSync("shared/prazos.ts", "utf8").replace(/export /g, "");
   vm.runInContext(compile(helperSource), helpersContext);
   const h = vm.runInContext("({calcularDatasPrazo,calcularFimPrazo,formatarBR,diaSemanaBR,ehDiaUtil})", helpersContext);
   const base = new Set(["2026-11-02"]);
@@ -38,7 +38,7 @@ if (!process.argv.includes("--caso")) {
   const clipboard = source.slice(source.indexOf("  const copiarComContexto = async"), source.indexOf("\n  return (",source.indexOf("  const copiarComContexto = async")));
   const sandbox=vm.createContext({...h,
     pub:{id:1,processoApelido:"Processo de teste",processoNumero:"30013004420268190061",tipoDocumento:"Sentença",dataDisponibilizacao:"2026-10-23",prazoDias:5,prazoTipo:"uteis",texto:"Sentença de teste"},
-    valor:"Avaliar embargos.",feriados,calendarioDisponivel:true,timerRef:{current:null},
+    valor:"Avaliar embargos.",feriados,suspensoes: new Set(), calendarioDisponivel:true,timerRef:{current:null},
     formatarCNJ:()=>"3001300-44.2026.8.19.0061",formatarDataPub:()=>"23/10/2026",limparTexto:v=>v,
     onToast:t=>{toasted=t;},setSalvando(){},onSalvar(){},window:{clearTimeout(){},setTimeout(){}},
     navigator:{clipboard:{async writeText(value){copied=value;}}},

@@ -1,0 +1,29 @@
+name: Importação assistida do calendário TJRJ
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/calendario-tjrj.yml'
+      - 'server/calendario-importacao.ts'
+      - 'server/calendario-routes.ts'
+  schedule:
+    - cron: '30 8 * * 1-5' # 05h30 de Brasília; GitHub pode atrasar a execução.
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: calendario-tjrj
+  cancel-in-progress: false
+jobs:
+  capturar:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Arquivar novas edições para conferência
+        env:
+          AUTH_AUTOMATION_TOKEN: ${{ secrets.AUTH_AUTOMATION_TOKEN }}
+        run: python scripts/coletar-calendario-tjrj.py

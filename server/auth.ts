@@ -164,6 +164,7 @@ export function createProductionAuth(
         "GET /api/processos", "GET /api/publicacoes/recentes",
         "POST /api/processos/atualizar", "POST /api/publicacoes/atualizar",
         "GET /api/auth/automation-health",
+        "POST /api/calendario/coletar",
       ]);
       const route = req.originalUrl.split("?")[0];
       if (!valid || !permitted.has(`${req.method} ${route}`)) {

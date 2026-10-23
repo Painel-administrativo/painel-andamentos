@@ -33,6 +33,10 @@ async function main() {
       expires_at: Math.floor(Date.now()/1000)+3600,
       user: { id: config.adminId, email: config.adminEmail, email_confirmed_at: new Date().toISOString() } } as any;
   });
+  app.post("/api/calendario/coletar", (_req, res) => res.json({ ok: true }));
+  app.post("/api/calendario/importar", (_req, res) => res.json({ ok: true }));
+  app.post("/api/calendario/propostas/1/revisar", (_req, res) => res.json({ ok: true }));
+  app.get("/api/calendario", (_req, res) => res.json({ ok: true }));
   app.post("/api/publicacoes/1/whatsapp", (_req, res) => res.json({ ok: true }));
   app.get("/api/whatsapp/config", (_req, res) => res.json({ configurado: false }));
   app.get("/api/processos", (_req, res) => res.json({ ok: true }));
@@ -57,6 +61,11 @@ async function main() {
     }, "__Host-painel-session");
   }
   try {
+    await request("/api/calendario", 401);
+    await request("/api/calendario/importar", 401, { method: "POST", headers: { Origin: config.origin!, "Content-Type":"application/json" }, body:"{}" });
+    await request("/api/calendario/coletar", 200, { method: "POST", headers: { "x-automation-token":config.automationKey!, "Content-Type":"application/json" }, body:"{}" });
+    await request("/api/calendario/importar", 401, { method: "POST", headers: { "x-automation-token":config.automationKey!, "Content-Type":"application/json" }, body:"{}" });
+    await request("/api/calendario/propostas/1/revisar", 401, { method: "POST", headers: { "x-automation-token":config.automationKey!, "Content-Type":"application/json" }, body:"{}" });
     await request("/api/whatsapp/config", 401);
     await request("/api/publicacoes/1/whatsapp", 401, { method: "POST", headers: { Origin: config.origin!, "Content-Type": "application/json" }, body: "{}" });
     await request("/api/publicacoes/1/whatsapp", 401, { method: "POST", headers: { "x-automation-token": config.automationKey!, "Content-Type": "application/json" }, body: "{}" });
