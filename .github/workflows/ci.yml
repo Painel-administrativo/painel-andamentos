@@ -27,6 +27,9 @@ jobs:
       - name: Verificação de tipos TypeScript
         run: npm run check
 
+      - name: Testes de prazos e texto copiado
+        run: node script/test-prazos.mjs && node script/test-whatsapp-order.mjs
+
       - name: Testes de autenticação
         run: npx tsx script/test-production-auth.ts
 

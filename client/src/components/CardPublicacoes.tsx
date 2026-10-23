@@ -1,3 +1,4 @@
+import { feriadosParaTribunal } from "@/lib/calendario-forense";
 import { EnviarWhatsApp } from "./EnviarWhatsApp";
 import { useState, useCallback, useEffect, useRef, useMemo } from "react";
 import { useInfiniteQuery, useQuery, useMutation } from "@tanstack/react-query";
@@ -107,7 +108,7 @@ function InputPrazo({ pub, inicio, feriados, onSalvar }: InputPrazoProps) {
       {fim && (
         <span
           className="font-medium text-primary"
-          title={`Termina ${diaSemanaBR(fim)}-feira em ${formatarBR(fim)}${
+          title={`Termina ${diaSemanaBR(fim)} em ${formatarBR(fim)}${
             tipo === "corridos" ? " (prorrogado pra dia útil se necessário)" : ""
           }`}
           data-testid={`prazo-fim-${pub.id}`}
@@ -125,11 +126,12 @@ function InputPrazo({ pub, inicio, feriados, onSalvar }: InputPrazoProps) {
 interface AnotacaoBlocoProps {
   pub: PublicacaoComProcesso;
   feriados: Set<string>;
+  calendarioDisponivel: boolean;
   onSalvar: (id: number, anotacao: string) => void;
   onToast: (t: { title: string; description?: string; variant?: "destructive" }) => void;
 }
 
-function AnotacaoBloco({ pub, feriados, onSalvar, onToast }: AnotacaoBlocoProps) {
+function AnotacaoBloco({ pub, feriados, calendarioDisponivel, onSalvar, onToast }: AnotacaoBlocoProps) {
   const [valor, setValor] = useState(pub.anotacao ?? "");
   const [salvando, setSalvando] = useState<"idle" | "pendente" | "salvo">("idle");
   const timerRef = useRef<number | null>(null);
@@ -154,6 +156,10 @@ function AnotacaoBloco({ pub, feriados, onSalvar, onToast }: AnotacaoBlocoProps)
 
   const copiarComContexto = async (e: React.MouseEvent) => {
     e.stopPropagation();
+    if (!calendarioDisponivel) {
+      onToast({ title: "Calendário indisponível", description: "Aguarde o carregamento dos feriados antes de copiar o aviso.", variant: "destructive" });
+      return;
+    }
     // Se houver debounce pendente, salva agora antes de copiar
     if (timerRef.current) {
       window.clearTimeout(timerRef.current);
@@ -205,7 +211,7 @@ function AnotacaoBloco({ pub, feriados, onSalvar, onToast }: AnotacaoBlocoProps)
           feriados
         );
         if (fim) {
-          const fimStr = `${pad(fim.getDate())}/${pad(fim.getMonth() + 1)}`;
+          const fimStr = formatarBR(fim).slice(0, 5);
           const dow = diaSemanaBR(fim);
           linhas.push(
             `Prazo: ${pub.prazoDias} dias ${pub.prazoTipo} → termina ${fimStr} (${dow})`
@@ -285,6 +291,7 @@ function AnotacaoBloco({ pub, feriados, onSalvar, onToast }: AnotacaoBlocoProps)
             variant="outline"
             className="h-7 text-xs"
             onClick={copiarComContexto}
+            disabled={!calendarioDisponivel}
             data-testid={`button-copiar-anotacao-${pub.id}`}
             title="Copia um bloco pronto: Processo [Apelido] — [tipo doc · data]: [sua anotação]"
           >
@@ -941,11 +948,12 @@ export function CardPublicacoes() {
   const naoLidasTotal = countData?.naoLidas ?? 0;
 
   // -------- Feriados (para cálculo de dias úteis) --------
-  const { data: feriadosData } = useQuery<{ items: { data: string; descricao: string; ambito: string }[] }>({
+  const { data: feriadosData, isError: erroCalendario, refetch: recarregarCalendario } = useQuery<{ items: { data: string; descricao: string; ambito: string }[] }>({
     queryKey: ["/api/feriados"],
     staleTime: 24 * 60 * 60 * 1000, // 24h — feriados não mudam com frequência
   });
-  const feriados = useMemo(
+  const calendarioDisponivel = feriadosData !== undefined;
+  const feriadosBase = useMemo(
     () => new Set((feriadosData?.items ?? []).map((f) => f.data)),
     [feriadosData]
   );
@@ -1257,6 +1265,7 @@ export function CardPublicacoes() {
       ) : (
         <ul className="divide-y divide-border" role="list">
           {publicacoes.map((pub) => {
+            const feriados = feriadosParaTribunal(feriadosBase, pub.siglaTribunal || inferirTribunal(pub.processoNumero));
             const expandida = expandidas.has(pub.id);
             const naoLida = pub.lidoEm === null;
             return (
@@ -1367,7 +1376,7 @@ export function CardPublicacoes() {
                     )}
                     {/* Datas de prazo + status de leitura/comunicação */}
                     {(() => {
-                      const datas = calcularDatasPrazo(pub.dataDisponibilizacao, feriados);
+                      const datas = calendarioDisponivel ? calcularDatasPrazo(pub.dataDisponibilizacao, feriados) : null;
                       return (
                         <div
                           className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs"
@@ -1377,6 +1386,12 @@ export function CardPublicacoes() {
                             <span className="font-medium">Disponibilizado:</span>{" "}
                             {formatarDataPub(pub.dataDisponibilizacao)}
                           </span>
+                          {!calendarioDisponivel && (
+                            <span role="status">
+                              {erroCalendario ? "Calendário indisponível — prazo ainda não calculado." : "Aguardando calendário de feriados — prazo ainda não calculado."}
+                              {erroCalendario && <button type="button" className="ml-2 underline" onClick={() => void recarregarCalendario()}>Tentar novamente</button>}
+                            </span>
+                          )}
                           {datas && (
                             <>
                               <span className="text-muted-foreground">
@@ -1385,7 +1400,7 @@ export function CardPublicacoes() {
                               </span>
                               <span
                                 className="font-medium text-primary"
-                                title="1º dia útil após a publicação, considerando feriados nacionais e do RJ."
+                                title="1º dia útil após a publicação, considerando o calendário cadastrado e as suspensões confirmadas para o tribunal."
                               >
                                 Prazo começa: {datas.inicioStr}
                               </span>
@@ -1454,6 +1469,7 @@ export function CardPublicacoes() {
                       {limparTexto(pub.texto) || <em className="text-muted-foreground">Sem texto disponível.</em>}
                     </div>
                     <AnotacaoBloco
+                      calendarioDisponivel={calendarioDisponivel}
                       pub={pub}
                       feriados={feriados}
                       onSalvar={(id, anotacao) => {
