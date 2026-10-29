@@ -1,3 +1,4 @@
+import {registrarReconsultaDjen} from "./djen-reconsulta";
 import { registrarRelatorios } from "./relatorios-routes";
 import { registrarAjustePrazo } from "./prazo-manual-routes";
 import { registrarCalendario } from "./calendario-routes";
@@ -173,17 +174,21 @@ export async function registerRoutes(
   // Histórico privado: somente a sessão autenticada pode ler esta rota.
   registrarEnviosMeta(app, pool, id => storage.getPublicacaoPublicaPorId(id));
   registrarCalendario(app, pool);
+  registrarReconsultaDjen(app,pool,(id,items)=>storage.inserirPublicacoes(id,items));
   registrarAjustePrazo(app, pool);
   registrarRelatorios(app, pool);
 
   app.get("/api/monitoramento/logs", async (_req, res) => {
     try {
-      const { rows } = await pool.query(`SELECT id, iniciado_em, finalizado_em,
-        status, processos, novidades, erros, rate_limits, respostas_invalidas,
-        lote_offset, janela_inicio, janela_fim, falhas, rodada_id
-        FROM public.painel_djen_logs
-        WHERE iniciado_em >= now() - interval '7 days'
-        ORDER BY iniciado_em DESC, id DESC LIMIT 200`);
+      const { rows } = await pool.query(`SELECT l.*,
+        COALESCE((SELECT jsonb_agg(f) FROM jsonb_array_elements(l.falhas) f
+          WHERE f ? 'processoId' AND NOT EXISTS (
+            SELECT 1 FROM public.painel_djen_logs r
+            WHERE r.reconsulta_de=COALESCE(l.reconsulta_de,l.id)
+              AND r.reconsulta_processo_id::text=f->>'processoId' AND r.status='sem_erros')),'[]'::jsonb) AS pendencias
+        FROM public.painel_djen_logs l
+        WHERE l.iniciado_em >= now() - interval '7 days'
+        ORDER BY l.iniciado_em DESC, l.id DESC LIMIT 200`);
       res.setHeader("Cache-Control", "no-store");
       res.json(rows);
     } catch {
