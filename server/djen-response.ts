@@ -9,7 +9,7 @@ export class DjenResponseError extends Error {
 
 // A lista vazia só é conclusiva quando veio de um envelope válido.
 // Nunca inclua o corpo remoto nos erros/logs: ele pode conter dados processuais.
-export async function lerRespostaDjen(response: Response): Promise<DjenItem[]> {
+export async function lerRespostaDjen(response: Response, exigirCompleto = false): Promise<DjenItem[]> {
   let body: unknown;
   try {
     body = await response.json();
@@ -32,6 +32,9 @@ export async function lerRespostaDjen(response: Response): Promise<DjenItem[]> {
        envelope.count < envelope.items.length ||
        (envelope.count > 0 && envelope.items.length === 0))) {
     throw new DjenResponseError("DJEN_CONTAGEM_INCONSISTENTE");
+  }
+  if (exigirCompleto && typeof envelope.count === "number" && envelope.count > envelope.items.length) {
+    throw new DjenResponseError("DJEN_RESULTADO_INCOMPLETO");
   }
   // Campos mínimos exigidos pelo armazenamento. Sem eles, inserirPublicacoes
   // ignoraria o item e uma resposta malformada poderia parecer "sem novidades".

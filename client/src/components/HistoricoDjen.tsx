@@ -6,6 +6,10 @@ import { Button } from "@/components/ui/button";
 
 type Log = {
   rodada_id?: string | null;
+  reconsulta_de?: string | null;
+  reconsulta_processo_id?: string | null;
+  janela_inicio: string; janela_fim: string;
+  pendencias?: Array<{processoId:number|string;codigo:string}>;
   id: string; iniciado_em: string; finalizado_em: string | null;
   status: "em_andamento" | "sem_erros" | "parcial" | "falha";
   processos: number; novidades: number; erros: number; rate_limits: number;
@@ -50,6 +54,29 @@ export function HistoricoDjen() {
       setMessage(`Consulta inconclusiva após ${processos} processos: ${error instanceof Error ? error.message : "Falha de conexão"}. Confira o histórico antes de repetir.`);
     } finally { busy.current = false; setRunning(false); }
   }
+  async function reconsultar(lotes:Log[]) {
+    if (busy.current) return;
+    const alvos = Array.from(new Map(lotes.flatMap(l=>(l.pendencias||[]).map(f=>[
+      `${l.reconsulta_de||l.id}:${f.processoId}`,{logId:l.id,processoId:Number(f.processoId)}
+    ] as const))).values()).filter(f=>Number.isSafeInteger(f.processoId)&&f.processoId>0);
+    if (!alvos.length) return;
+    busy.current=true;stop.current=false;setRunning(true);
+    const rodada=crypto.randomUUID();let feitos=0,novidades=0,erros=0;
+    try {
+      for(const alvo of alvos){
+        if(stop.current)break;
+        setMessage(`Reconsultando somente falhas: ${feitos} de ${alvos.length}, ${novidades} novidades, ${erros} falhas persistentes. Mantenha esta página aberta.`);
+        const r=await apiRequest('POST',`/api/monitoramento/logs/${alvo.logId}/reconsultar`,{processoId:alvo.processoId,rodada});
+        const data=await r.json();
+        if(![data.novasPublicacoes,data.erros].every(n=>Number.isSafeInteger(n)&&n>=0))throw Error('Resposta inconclusiva do servidor.');
+        feitos++;novidades+=data.novasPublicacoes;erros+=data.erros;
+        await Promise.all(['/api/monitoramento/logs','/api/publicacoes','/api/publicacoes/nao-lidas-count'].map(k=>queryClient.invalidateQueries({queryKey:[k]})));
+        if(feitos<alvos.length&&!stop.current)await new Promise(r=>setTimeout(r,2500));
+      }
+      setMessage(`Reconsulta ${feitos<alvos.length?'interrompida':'encerrada'}: ${feitos} de ${alvos.length} processos, ${novidades} novidades e ${erros} falhas persistentes. Os registros originais foram preservados.`);
+    } catch(e){setMessage(`Reconsulta inconclusiva após ${feitos} processos: ${e instanceof Error?e.message:'Falha de conexão'}. Atualize o histórico antes de repetir.`);}
+    finally{await queryClient.invalidateQueries({queryKey:['/api/monitoramento/logs']});busy.current=false;setRunning(false);}
+  }
   const query = useQuery<Log[]>({ queryKey: ["/api/monitoramento/logs"], staleTime: 30000, refetchInterval: 60000 });
   const grupos = new Map<string, Log[]>();
   // Compatibilidade com páginas antigas e executores sem UUID. Agrupamento
@@ -79,6 +106,7 @@ export function HistoricoDjen() {
       status: lotes.some(l => l.status === "em_andamento") ? "em_andamento" :
         lotes.some(l => l.erros > 0 || l.status === "falha") ? "parcial" : "sem_erros",
       falhas: lotes.flatMap(l => l.falhas),
+      pendencias: lotes.flatMap(l => l.pendencias||[]),
     };
   });
   return <section className="mb-6 rounded-xl border bg-card px-5 py-6" aria-label="Histórico de atualizações">
@@ -113,11 +141,16 @@ export function HistoricoDjen() {
             <details><summary className="cursor-pointer whitespace-nowrap">{labels[log.status as keyof typeof labels]}</summary>
               <div className="mt-2 min-w-52 text-xs text-muted-foreground">
                 <p>{log.rodada_id ? "Atualização identificada." : "Agrupamento inferido pela sequência de lotes."} Totais dos registros disponíveis.</p>
+                {log.reconsulta_de && <p>Reconsulta vinculada ao registro {log.reconsulta_de}. Período original preservado.</p>}
+                <p>Período consultado: {String(log.janela_inicio).slice(0,10)} a {String(log.janela_fim).slice(0,10)}. Pendências identificadas: {log.pendencias.length}.</p>
                 <p>Horário de Brasília. HTTP 429: {log.rate_limits}. Ausência de erros não comprova cobertura integral.</p>
                 <ul>{log.lotes.map(l => <li key={l.id}>Lote {l.lote_offset}: {l.processos} processos, {l.novidades} novidades, {l.erros} erros.</li>)}</ul>
                 <ul>{log.falhas.map((f,i) => <li key={i}>{f.processoId ? `Processo ID ${f.processoId}: ` : ""}{f.codigo}</li>)}</ul>
               </div>
             </details>
+            {log.pendencias.length>0 && <Button variant="outline" size="sm" className="mt-2 h-auto max-w-64 whitespace-normal text-left" disabled={running||log.status==='em_andamento'} onClick={()=>reconsultar(log.lotes)}>Reconsultar somente os processos com falha</Button>}
+            {log.lotes.every(l=>Array.isArray(l.pendencias))&&log.falhas.some(f=>f.processoId)&&!log.pendencias.length&&<p className="mt-1 text-xs text-emerald-700">Falhas identificadas recuperadas por reconsulta.</p>}
+            {log.erros>0&&!log.falhas.some(f=>f.processoId)&&<p className="mt-1 text-xs">Falha sem processo identificado: use a atualização completa.</p>}
           </td>
         </tr>)}</tbody>
       </table></div>}

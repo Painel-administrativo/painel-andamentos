@@ -39,6 +39,9 @@ jobs:
       - name: Testes do ajuste manual de prazo
         run: node --import tsx script/test-prazo-manual.ts
 
+      - name: Testes de reconsulta DJEN
+        run: node --import tsx script/test-djen-reconsulta.ts
+
       - name: Testes de autenticação
         run: npx tsx script/test-production-auth.ts
 
