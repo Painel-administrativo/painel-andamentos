@@ -1,3 +1,5 @@
+> Integração anterior. Novos envios usam Twilio; consulte `docs/whatsapp-twilio.md`. O webhook Meta permanece apenas para finalizar confirmações de envios históricos.
+
 # WhatsApp da Meta no Prazzo
 
 A integração acrescenta **Enviar WhatsApp** ao lado de **Copiar pro WhatsApp**, em cada publicação. O administrador revisa o nome, o número com país/DDD, o resumo e a curadoria antes de confirmar. Esta versão envia um aviso por vez; a coleta diária DJEN não dispara mensagens automaticamente.

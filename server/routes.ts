@@ -10,7 +10,8 @@ import { storage, pool } from "./storage";
 import { insertProcessoInputSchema, type DatajudSource, TRIBUNAIS } from "@shared/schema";
 import { z } from "zod";
 import { createProductionAuth } from "./auth";
-import { registrarWebhookMeta, registrarEnviosMeta } from "./whatsapp";
+import {registrarWebhookTwilio,registrarEnviosTwilio} from "./whatsapp-twilio";
+import { registrarWebhookMeta } from "./whatsapp";
 import { DjenResponseError, lerRespostaDjen } from "./djen-response";
 
 // Segredo para tokens opacos de publicações públicas (usadas em links WhatsApp).
@@ -45,6 +46,9 @@ function validarToken(id: number, token: string): boolean {
   return diff === 0;
 }
 
+// Chave PUBLICA compartilhada, publicada pelo próprio CNJ (não é segredo do usuário):
+// https://datajud-wiki.cnj.jus.br/api-publica/acesso/#api-key
+// Valor preservado do repositório público existente; integração Twilio não o altera.
 const DATAJUD_APIKEY =
   "APIKey cDZHYzlZa0JadVREZDJCendQbXY6SkJlTzNjLV9TRENyQk1RdnFKZGRQdw==";
 
@@ -140,7 +144,8 @@ export async function registerRoutes(
   app: Express
 ): Promise<Server> {
   // Meta callbacks authenticate through their signature, before session middleware.
-  registrarWebhookMeta(app, pool);
+  registrarWebhookMeta(app, pool); // Legacy delivery callbacks only.
+  registrarWebhookTwilio(app,pool);
   // Auth is always fail-closed. Old public publication URLs are protected too.
   app.use(createProductionAuth({
     url: process.env.SUPABASE_URL,
@@ -172,7 +177,7 @@ export async function registerRoutes(
   }));
 
   // Histórico privado: somente a sessão autenticada pode ler esta rota.
-  registrarEnviosMeta(app, pool, id => storage.getPublicacaoPublicaPorId(id));
+  registrarEnviosTwilio(app, pool, id => storage.getPublicacaoPublicaPorId(id));
   registrarCalendario(app, pool);
   registrarReconsultaDjen(app,pool,(id,items)=>storage.inserirPublicacoes(id,items));
   registrarAjustePrazo(app, pool);
