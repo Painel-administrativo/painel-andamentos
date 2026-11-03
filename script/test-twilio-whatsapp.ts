@@ -6,16 +6,16 @@ import {twilioConfig,twilioReady,enviarTwilio,registrarEnviosTwilio,registrarWeb
 const c=twilioConfig({TWILIO_ACCOUNT_SID:'AC'+'a'.repeat(32),TWILIO_AUTH_TOKEN:'test-token',TWILIO_WHATSAPP_FROM:'+14155238886',TWILIO_CONTENT_SID:'HX'+'b'.repeat(32),AUTH_ORIGIN:'https://painel.test'});
 const sid='SM'+'c'.repeat(32),id='aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee';
 assert.ok(twilioReady(c));assert.ok(!twilioReady({...c,authToken:''}));assert.ok(!twilioReady(twilioConfig({AUTH_ORIGIN:'http://unsafe.test'})));assert.ok(!twilioReady({...c,from:'+14155238886'}));
-const input={nome:'Destinatário teste',telefone:'+55 (21) 99999-9999',resumo:'Despacho de teste.',curadoria:'Conferir os autos.',consentimento:true};
+let input:any={nome:'Destinatário teste',telefone:'+55 (21) 99999-9999',resumo:'Despacho de teste.',curadoria:'Conferir os autos.',consentimento:true};
 let calls=0;
 const response=()=>Response.json({sid,account_sid:c.accountSid,to:'whatsapp:+5521999999999',from:c.from,status:'queued'},{status:201});
 const transport:typeof fetch=async(url,init)=>{
  calls++;assert.equal(url,`https://api.twilio.com/2010-04-01/Accounts/${c.accountSid}/Messages.json`);
  assert.equal((init?.headers as any).Authorization,`Basic ${Buffer.from(`${c.accountSid}:${c.authToken}`).toString('base64')}`);
  const b=new URLSearchParams(String(init?.body));assert.equal(b.get('From'),c.from);assert.equal(b.get('To'),'whatsapp:+5521999999999');assert.equal(b.get('ContentSid'),c.contentSid);assert.equal(b.get('StatusCallback'),callbackTwilio(c,id));assert.equal(b.has('Body'),false);
- assert.deepEqual(JSON.parse(b.get('ContentVariables')!),{'1':'00000000000000000000','2':input.resumo,'3':input.curadoria});return response();
+ assert.deepEqual(JSON.parse(b.get('ContentVariables')!),Object.fromEntries(values.map((v,i)=>[String(i+1),v])));assert.equal(values.length,10);return response();
 };
-const values=['00000000000000000000',input.resumo,input.curadoria];
+let values=['03/11 13:02','TAPAJOZ-Flavia - JOSELINA','0801985-40.2024.8.19.0061','Outros','03/11/2026','04/11/2026','05/11/2026','Comunicação de teste.','Nenhuma.','Informa distribuição.'];
 assert.equal((await enviarTwilio(c,id,'5521999999999',values,transport)).status,'aceita');
 assert.equal((await enviarTwilio(c,id,'5521999999999',values,async()=>{throw Error('timeout');})).status,'incerto');
 assert.equal((await enviarTwilio(c,id,'5521999999999',values,async()=>Response.json({code:63016},{status:400}))).codigo,'63016');
@@ -29,8 +29,9 @@ const db={async query(sql:string,params:any[]=[]){queries.push({sql,params});
  return{rows:[]};}};
 const app=express();app.use(express.json());app.use(express.urlencoded({extended:false}));registrarWebhookTwilio(app,db,()=>c);
 app.use((req,res,next)=>{if(req.get('authorization')!=='test-session'){res.sendStatus(401);return;}next();});
+const pub={id:7,processoNumero:'08019854020248190061',processoApelido:'TAPAJOZ-Flavia - JOSELINA',siglaTribunal:'TJRJ',tipoDocumento:'Outros',dataDisponibilizacao:'2026-11-03',texto:'Comunicação de teste.',anotacao:'Ação: necessária: Nenhuma.\n› Curadoria: Informa distribuição.'};
 let callbackBeforeAck=false;
-registrarEnviosTwilio(app,db,async()=>({processoNumero:values[0]}),()=>c,async(...args)=>{if(callbackBeforeAck)assert.equal((await event('delivered')).status,204);return transport(...args);});
+registrarEnviosTwilio(app,db,async()=>pub,()=>c,async(...args)=>{if(callbackBeforeAck)assert.equal((await event('delivered')).status,204);return transport(...args);});
 const server=app.listen(0,'127.0.0.1');await once(server,'listening');const base=`http://127.0.0.1:${(server.address() as any).port}`;
 async function post(body:any=input,auth=true){return fetch(base+'/api/publicacoes/7/whatsapp',{method:'POST',headers:{'Content-Type':'application/json',...(auth?{authorization:'test-session'}:{})},body:JSON.stringify(body)});}
 async function event(status:string,options:{badSignature?:boolean;changes?:Record<string,string>;tamper?:boolean;query?:boolean}={}){
@@ -41,6 +42,10 @@ async function event(status:string,options:{badSignature?:boolean;changes?:Recor
 try{
  assert.equal((await post(input,false)).status,401);assert.equal((await post({...input,consentimento:false})).status,400);
  const config=await(await fetch(base+'/api/whatsapp/config',{headers:{authorization:'test-session'}})).text();assert.ok(config.includes('twilio'));assert.ok(!config.includes(c.authToken));assert.ok(!config.includes(c.accountSid));
+ const preview=await(await fetch(base+'/api/publicacoes/7/whatsapp/previa',{headers:{authorization:'test-session'}})).json();
+ input={nome:input.nome,telefone:input.telefone,consentimento:true,conferido:true,versaoModelo:'aviso10',geradaEm:preview.geradaEm,contexto:preview.contexto,texto:preview.campos.texto,acao:preview.campos.acao,curadoria:preview.campos.curadoria};
+ values=['carimbo','identificacao','numero','tipo','disponibilizacao','publicacao','prazo','texto','acao','curadoria'].map(k=>preview.campos[k]);
+ const checkedCalls=calls;pub.anotacao+=' Fonte alterada.';assert.equal((await post()).status,409);assert.equal(calls,checkedCalls);pub.anotacao=pub.anotacao.replace(' Fonte alterada.','');
  const before=calls;const results=await Promise.all([post(),post()]);assert.deepEqual(results.map(r=>r.status).sort(),[202,409]);assert.equal(calls,before+1);assert.equal(rank,1);assert.equal(delivered,false);
  const n=queries.length;assert.equal((await event('delivered',{badSignature:true})).status,401);assert.equal((await event('delivered',{tamper:true})).status,401);assert.equal((await event('delivered',{query:true})).status,401);assert.equal((await event('delivered',{changes:{AccountSid:'AC'+'0'.repeat(32)}})).status,400);assert.equal(queries.length,n);
  assert.equal((await event('sent')).status,204);assert.equal(rank,2);assert.equal(delivered,false);

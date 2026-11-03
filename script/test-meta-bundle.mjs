@@ -25,6 +25,7 @@ try {
   assert.equal((await fetch(base+"/api/whatsapp/webhook",{method:"POST",headers,body})).status,200);
   assert.equal((await fetch(base+"/api/whatsapp/webhook",{method:"POST",headers,body:body+" "})).status,401);
   assert.equal((await fetch(base+"/api/whatsapp/config")).status,401);
+  assert.equal((await fetch(base+"/api/publicacoes/7/whatsapp/previa")).status,401);
   assert.equal((await fetch(base+"/api/publicacoes/7/whatsapp",{method:"POST",headers:{"Content-Type":"application/json",Origin:process.env.AUTH_ORIGIN},body:"{}"})).status,401);
   assert.equal((await fetch(base+"/api/publicacoes/7/whatsapp",{method:"POST",headers:{"Content-Type":"application/json","x-automation-token":process.env.AUTH_AUTOMATION_TOKEN},body:"{}"})).status,401);
   const twilioPath="/api/whatsapp/twilio/status/aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee";

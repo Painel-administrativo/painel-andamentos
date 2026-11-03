@@ -1,7 +1,7 @@
 import type {Express} from 'express';
 import {z} from 'zod';
 import {validateRequest} from 'twilio/lib/webhooks/webhooks';
-import {envioSchema,parametrosTemplate} from './whatsapp';
+import {envioAvisoSchema,prepararAviso,confirmarAviso} from './whatsapp-previa';
 
 type Db={query:(sql:string,values?:any[])=>Promise<any>};
 export function twilioConfig(env:NodeJS.ProcessEnv=process.env){
@@ -49,19 +49,25 @@ export function registrarWebhookTwilio(app:Express,db:Db,config=twilioConfig){
  });
 }
 export function registrarEnviosTwilio(app:Express,db:Db,getPublicacao:(id:number)=>Promise<any>,config=twilioConfig,transport:typeof fetch=fetch){
- app.get('/api/whatsapp/config',(_req,res)=>{const c=config();res.json({provedor:'twilio',configurado:twilioReady(c),pendencias:pendenciasTwilio(c)});});
+ app.get('/api/whatsapp/config',(_req,res)=>{const c=config();res.json({provedor:'twilio',configurado:twilioReady(c),pendencias:pendenciasTwilio(c),versaoModelo:'aviso10',variaveis:10});});
+ app.get('/api/publicacoes/:id/whatsapp/previa',async(req,res)=>{
+  const id=Number(req.params.id);if(!Number.isSafeInteger(id)||id<=0){res.sendStatus(400);return;}
+  try{const pub=await getPublicacao(id);if(!pub){res.sendStatus(404);return;}res.json(await prepararAviso(db,pub));}catch{res.status(503).json({error:'Não foi possível preparar as datas e o conteúdo do aviso. Confira a publicação e o calendário.'});}
+ });
  app.get('/api/publicacoes/:id/whatsapp',async(req,res)=>{
   const id=Number(req.params.id);if(!Number.isSafeInteger(id)||id<=0){res.sendStatus(400);return;}
   try{res.json((await db.query('SELECT id,nome,telefone,status,erro_codigo,provedor,criado_em,atualizado_em FROM public.painel_whatsapp_envios WHERE publicacao_id=$1 ORDER BY criado_em DESC LIMIT 20',[id])).rows);}catch{res.status(503).json({error:'Não foi possível consultar os envios.'});}
  });
  app.post('/api/publicacoes/:id/whatsapp',async(req,res)=>{
   const c=config();if(!twilioReady(c)){res.status(503).json({error:'Configure a integração Twilio no servidor antes de enviar.'});return;}
-  const id=Number(req.params.id),input=envioSchema.safeParse(req.body);
-  if(!Number.isSafeInteger(id)||id<=0||!input.success){res.status(400).json({error:'Confira destinatário, país/DDD, resumo, curadoria e autorização de recebimento.'});return;}
+  const id=Number(req.params.id),input=envioAvisoSchema.safeParse(req.body);
+  if(!Number.isSafeInteger(id)||id<=0||!input.success){res.status(400).json({error:'Confira destinatário, país/DDD, texto, ação, curadoria, conferência e autorização de recebimento.'});return;}
   let row:any;
   try{
    const pub=await getPublicacao(id);if(!pub){res.sendStatus(404);return;}
-   const{values,texto}=parametrosTemplate(pub.processoNumero,input.data);
+   const previa=await prepararAviso(db,pub,input.data.geradaEm);
+   let aviso;try{aviso=confirmarAviso(previa,input.data);}catch(e){res.status(409).json({error:e instanceof Error?e.message:'Atualize a prévia.'});return;}
+   const{values,texto}=aviso;
    const r=await db.query(`INSERT INTO public.painel_whatsapp_envios(publicacao_id,nome,telefone,texto,template,phone_number_id,consentimento_em,provedor,provider_account_sid)
     VALUES($1,$2,$3,$4,$5,$6,now(),'twilio',$7) ON CONFLICT(publicacao_id,telefone) DO NOTHING RETURNING id`,[id,input.data.nome,input.data.telefone,texto,c.contentSid,c.from,c.accountSid]);
    row=r.rows[0];if(!row){res.status(409).json({error:'Já existe uma tentativa para esta publicação e número. Confira o histórico antes de reenviar.'});return;}
