@@ -49,7 +49,7 @@ jobs:
         run: node --import tsx script/test-meta-whatsapp.ts
 
       - name: Testes da integração Twilio WhatsApp
-        run: node --import tsx script/test-twilio-whatsapp.ts
+        run: node --import tsx script/test-whatsapp-aviso10.ts && node --import tsx script/test-twilio-whatsapp.ts
 
       - name: Build do projeto
         env:

@@ -38,6 +38,7 @@ async function main() {
   app.post("/api/calendario/propostas/1/revisar", (_req, res) => res.json({ ok: true }));
   app.get("/api/calendario", (_req, res) => res.json({ ok: true }));
   app.post("/api/publicacoes/1/whatsapp", (_req, res) => res.json({ ok: true }));
+  app.get("/api/publicacoes/1/whatsapp/previa", (_req,res)=>res.json({ok:true}));
   app.get("/api/whatsapp/config", (_req, res) => res.json({ configurado: false }));
   app.get("/api/relatorios/grupos", (_req, res) => res.json([]));
   app.post("/api/relatorios/grupos", (_req, res) => res.json({ok:true}));
@@ -80,6 +81,8 @@ async function main() {
     await request("/api/calendario/coletar", 200, { method: "POST", headers: { "x-automation-token":config.automationKey!, "Content-Type":"application/json" }, body:"{}" });
     await request("/api/calendario/importar", 401, { method: "POST", headers: { "x-automation-token":config.automationKey!, "Content-Type":"application/json" }, body:"{}" });
     await request("/api/calendario/propostas/1/revisar", 401, { method: "POST", headers: { "x-automation-token":config.automationKey!, "Content-Type":"application/json" }, body:"{}" });
+    await request("/api/publicacoes/1/whatsapp/previa",401);
+    await request("/api/publicacoes/1/whatsapp/previa",401,{headers:{"x-automation-token":config.automationKey!}});
     await request("/api/whatsapp/config", 401);
     await request("/api/publicacoes/1/whatsapp", 401, { method: "POST", headers: { Origin: config.origin!, "Content-Type": "application/json" }, body: "{}" });
     await request("/api/publicacoes/1/whatsapp", 401, { method: "POST", headers: { "x-automation-token": config.automationKey!, "Content-Type": "application/json" }, body: "{}" });
@@ -103,6 +106,7 @@ async function main() {
     await request("/api/processos", 401, { headers: { cookie: refreshCookie } });
     refuseRefresh = false;
     const session = await cookie();
+    await request("/api/publicacoes/1/whatsapp/previa",200,{headers:{cookie:session}});
     await request("/api/monitoramento/logs/1/reconsultar",403,{method:"POST",headers:{cookie:session,Origin:"https://evil.example","Content-Type":"application/json"},body:"{}"});
     await request("/api/monitoramento/logs/1/reconsultar",200,{method:"POST",headers:{cookie:session,Origin:config.origin!,"Content-Type":"application/json"},body:"{}"});
     await request("/api/publicacoes/1/prazo-manual/historico",200,{headers:{cookie:session}});
