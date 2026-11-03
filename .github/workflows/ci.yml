@@ -48,6 +48,9 @@ jobs:
       - name: Testes da integração Meta WhatsApp
         run: node --import tsx script/test-meta-whatsapp.ts
 
+      - name: Testes da integração Twilio WhatsApp
+        run: node --import tsx script/test-twilio-whatsapp.ts
+
       - name: Build do projeto
         env:
           # Valores dummy só para o build compilar. Não são usados em runtime.

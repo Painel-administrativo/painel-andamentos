@@ -84,7 +84,7 @@ export function registrarWebhookMeta(app: Express, db: Db, config = metaConfig) 
           await db.query(`WITH changed AS (
             UPDATE public.painel_whatsapp_envios SET status=$1, status_ordem=$2, meta_id=COALESCE(meta_id,$3),
               erro_codigo=$4, atualizado_em=now()
-            WHERE (meta_id=$3 OR (id::text=$5 AND meta_id IS NULL)) AND telefone=$6 AND phone_number_id=$7 AND status_ordem<$2
+            WHERE provedor='meta' AND (meta_id=$3 OR (id::text=$5 AND meta_id IS NULL)) AND telefone=$6 AND phone_number_id=$7 AND status_ordem<$2
             RETURNING publicacao_id
           ) UPDATE public.publicacoes SET informado_em=COALESCE(informado_em,now())
             WHERE id IN (SELECT publicacao_id FROM changed) AND $2>=4`,

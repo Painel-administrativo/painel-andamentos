@@ -9,8 +9,8 @@ import { Input } from "@/components/ui/input";
 import { Send, Loader2 } from "lucide-react";
 import type { PublicacaoComProcesso } from "@shared/schema";
 
-type Envio = { id: string; nome: string; telefone: string; status: string; erro_codigo: string | null; criado_em: string };
-const labels: Record<string, string> = { reservada: "Em processamento — não repita", aceita: "Aceita pela Meta; aguardando entrega",
+type Envio = { provedor?: "meta" | "twilio"; id: string; nome: string; telefone: string; status: string; erro_codigo: string | null; criado_em: string };
+const labels: Record<string, string> = { reservada: "Em processamento — não repita", aceita: "Aceita pelo provedor; aguardando entrega",
   enviada: "Enviada; aguardando entrega", entregue: "Entregue", lida: "Lida", falha: "Falha no envio", incerto: "Resultado inconclusivo — não repita" };
 const linha = (v: string) => v.replace(/[\r\n\t]+/g, " ").trim();
 export function EnviarWhatsApp({ pub, anotacao }: { pub: PublicacaoComProcesso; anotacao: string }) {
@@ -20,7 +20,7 @@ export function EnviarWhatsApp({ pub, anotacao }: { pub: PublicacaoComProcesso; 
   const [resumo, setResumo] = useState("");
   const [curadoria, setCuradoria] = useState("");
   const [consentimento, setConsentimento] = useState(false);
-  const config = useQuery<{ configurado: boolean }>({ queryKey: ["/api/whatsapp/config"], enabled: aberto, staleTime: 0 });
+  const config = useQuery<{ configurado: boolean; provedor: string; pendencias: string[] }>({ queryKey: ["/api/whatsapp/config"], enabled: aberto, staleTime: 0 });
   const key = [`/api/publicacoes/${pub.id}/whatsapp`];
   const historico = useQuery<Envio[]>({ queryKey: key, enabled: aberto, staleTime: 0, refetchInterval: aberto ? 5000 : false });
   const enviar = useMutation({
@@ -43,10 +43,10 @@ export function EnviarWhatsApp({ pub, anotacao }: { pub: PublicacaoComProcesso; 
     </Button>
     <Dialog open={aberto} onOpenChange={v => { if (!enviar.isPending) setAberto(v); }}>
       <DialogContent className="max-w-xl max-h-[90vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
-        <DialogHeader><DialogTitle>Enviar aviso pelo WhatsApp</DialogTitle></DialogHeader>
+        <DialogHeader><DialogTitle>Enviar aviso pelo WhatsApp · Twilio</DialogTitle></DialogHeader>
         <p className="text-sm text-muted-foreground break-words">{pub.processoApelido} · {pub.processoNumero}</p>
         {config.isLoading ? <p>Verificando integração…</p> : config.isError ? <p role="alert">Não foi possível verificar a integração.</p> : !config.data?.configurado &&
-          <p className="text-sm text-amber-700" role="status">A integração Meta ainda precisa ser configurada no servidor. Você já pode preparar e revisar o aviso.</p>}
+          <p className="text-sm text-amber-700" role="status">A integração Twilio ainda precisa ser configurada no servidor. Você já pode preparar e revisar o aviso.</p>}
         <div className="space-y-3">
           <label className="block text-sm">Nome do destinatário<Input value={nome} maxLength={100} onChange={e => setNome(e.target.value)} placeholder="Advogado ou assinante" /></label>
           <label className="block text-sm">WhatsApp com país e DDD<Input type="tel" value={telefone} onChange={e => setTelefone(e.target.value)} placeholder="55 21 99999-9999" /></label>
@@ -69,9 +69,9 @@ export function EnviarWhatsApp({ pub, anotacao }: { pub: PublicacaoComProcesso; 
           {historico.isLoading && <p className="text-sm">Carregando…</p>}
           {historico.isError && <p className="text-sm" role="alert">Histórico indisponível. O envio fica bloqueado até ser possível consultá-lo.</p>}
           {historico.data?.length === 0 && <p className="text-sm text-muted-foreground">Nenhum envio registrado.</p>}
-          {historico.data?.map(v => <div key={v.id} className="text-sm border rounded p-2 break-words"><p>{v.nome} · +{v.telefone}</p>
+          {historico.data?.map(v => <div key={v.id} className="text-sm border rounded p-2 break-words"><p>{v.nome} · +{v.telefone} · {v.provedor === "twilio" ? "Twilio" : "Meta (histórico)"}</p>
             <p>{labels[v.status] || v.status}{v.erro_codigo ? ` · Código ${v.erro_codigo}` : ""}</p><p className="text-xs text-muted-foreground">{new Date(v.criado_em).toLocaleString("pt-BR", { timeZone: "America/Sao_Paulo" })}</p></div>)}
-          <p className="text-xs text-muted-foreground">“Informada” é marcada automaticamente quando a Meta confirma entrega ou leitura. Resultados inconclusivos exigem conferência antes de qualquer novo envio.</p>
+          <p className="text-xs text-muted-foreground">“Informada” é marcada automaticamente quando o provedor confirma entrega ou leitura. Resultados inconclusivos exigem conferência antes de qualquer novo envio.</p>
         </div>
       </DialogContent>
     </Dialog>
