@@ -1,3 +1,4 @@
+import {consultarFonteAndamentos,registrarLotesAndamentos} from "./andamentos-lotes";
 import {registrarReconsultaDjen} from "./djen-reconsulta";
 import { registrarRelatorios } from "./relatorios-routes";
 import { registrarAjustePrazo } from "./prazo-manual-routes";
@@ -52,22 +53,7 @@ function validarToken(id: number, token: string): boolean {
 const DATAJUD_APIKEY =
   "APIKey cDZHYzlZa0JadVREZDJCendQbXY6SkJlTzNjLV9TRENyQk1RdnFKZGRQdw==";
 
-function endpointFor(tribunal: string): string | null {
-  const map: Record<string, string> = {
-    TJRJ: "api_publica_tjrj",
-    TRF2: "api_publica_trf2",
-    TRT1: "api_publica_trt1",
-    TJSP: "api_publica_tjsp",
-    TJRS: "api_publica_tjrs",
-  };
-  const idx = map[tribunal];
-  if (!idx) return null;
-  return `https://api-publica.datajud.cnj.jus.br/${idx}/_search`;
-}
-
-function normalizarNumero(numero: string): string {
-  return (numero || "").replace(/[^\d]/g, "");
-}
+function normalizarNumero(numero: string): string { return (numero || "").replace(/[^\d]/g, ""); }
 
 // Detecta processos com "cara" de 2º grau (código de órgão julgador "0000",
 // últimos 4 dígitos do CNJ). NOTA: alguns desses processos TÊM cobertura no
@@ -91,52 +77,8 @@ function inferirTribunal(numero20: string): string | null {
   return null;
 }
 
-async function consultarDatajud(
-  numero20: string,
-  tribunal: string
-): Promise<{ status: "ok" | "nao_encontrado" | "erro"; dados?: DatajudSource; erro?: string }> {
-  const url = endpointFor(tribunal);
-  if (!url) return { status: "erro", erro: `Tribunal não suportado: ${tribunal}` };
-  try {
-    const resp = await fetch(url, {
-      method: "POST",
-      headers: {
-        Authorization: DATAJUD_APIKEY,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({ query: { match: { numeroProcesso: numero20 } } }),
-    });
-    if (!resp.ok) {
-      return { status: "erro", erro: `HTTP ${resp.status}` };
-    }
-    const json: any = await resp.json();
-    const total = json?.hits?.total?.value ?? 0;
-    if (total === 0 || !json?.hits?.hits?.length) {
-      return { status: "nao_encontrado" };
-    }
-    const source = json.hits.hits[0]._source as DatajudSource;
-    return { status: "ok", dados: source };
-  } catch (e: any) {
-    return { status: "erro", erro: e?.message || "Falha na requisição" };
-  }
-}
-
-// Executor com limite de concorrência
-async function mapConcurrent<T, R>(
-  items: T[],
-  limit: number,
-  fn: (item: T) => Promise<R>
-): Promise<R[]> {
-  const results: R[] = new Array(items.length);
-  let idx = 0;
-  const workers = new Array(Math.min(limit, items.length)).fill(0).map(async () => {
-    while (idx < items.length) {
-      const cur = idx++;
-      results[cur] = await fn(items[cur]);
-    }
-  });
-  await Promise.all(workers);
-  return results;
+async function consultarDatajud(numero:string,tribunal:string){
+  return consultarFonteAndamentos(numero,tribunal,DATAJUD_APIKEY);
 }
 
 export async function registerRoutes(
@@ -403,180 +345,8 @@ export async function registerRoutes(
     });
   });
 
-  // Atualiza andamentos: consulta Datajud para os processos.
-  // Para processos com cara de 2º grau que não forem achados, marca como
-  // "2o_grau" (fallback → acompanhamento manual pelo portal).
-  //
-  // PAGINAÇÃO (?limite=N&offset=M): o limite de 60s da função serverless no
-  // Vercel fazia a varredura completa morrer com FUNCTION_INVOCATION_TIMEOUT no
-  // meio da lista — sempre nos mesmos processos do fim da fila, que ficavam dias
-  // sem atualizar. Com `limite`, o chamador processa a lista em blocos e usa o
-  // `proximoOffset` retornado até `concluido: true`.
-  //
-  // Sem `limite`, o comportamento antigo (tudo de uma vez) é preservado para não
-  // quebrar o botão "Atualizar todos" do frontend.
-  //
-  // A ordenação de listProcessos é por id ascendente, então o fatiamento por
-  // offset é estável entre chamadas.
-  app.post("/api/processos/atualizar", async (req, res) => {
-    const iniciadoEm = Date.now();
-    const lista = await storage.listProcessos();
-    const total = lista.length;
-
-    const limiteRaw = req.query.limite ?? req.body?.limite;
-    const offsetRaw = req.query.offset ?? req.body?.offset;
-    const paginado =
-      limiteRaw !== undefined && limiteRaw !== null && String(limiteRaw) !== "";
-
-    const limite = paginado
-      ? Math.max(1, Math.min(Number(limiteRaw) || 10, 100))
-      : total;
-    const offset = Math.max(0, Number(offsetRaw) || 0);
-    const fatia = paginado ? lista.slice(offset, offset + limite) : lista;
-
-    let ok = 0;
-    let naoEncontrado = 0;
-    let erro = 0;
-    let segundoGrau = 0;
-
-    await mapConcurrent(fatia, 5, async (p) => {
-      let r = await consultarDatajud(p.numero, p.tribunal);
-
-      // Fallback: se não achou E o processo tem cara de 2º grau, marca como 2o_grau
-      if (
-        r.status === "nao_encontrado" &&
-        tem2oGrauFallback(p.numero, p.tribunal)
-      ) {
-        r = { status: "2o_grau" as any, dados: undefined, erro: undefined };
-      }
-
-      await storage.upsertSnapshot(p.id, {
-        status: r.status,
-        erro: r.erro ?? null,
-        dados: r.dados ?? null,
-      });
-      if (r.status === "ok") ok++;
-      else if (r.status === "nao_encontrado") naoEncontrado++;
-      else if ((r.status as any) === "2o_grau") segundoGrau++;
-      else erro++;
-    });
-
-    const proximoOffset = offset + fatia.length;
-    const concluido = !paginado || proximoOffset >= total;
-
-    res.json({
-      total,
-      processados: fatia.length,
-      offset,
-      limite: paginado ? limite : null,
-      proximoOffset: concluido ? null : proximoOffset,
-      concluido,
-      ok,
-      naoEncontrado,
-      erro,
-      segundoGrau,
-      duracaoMs: Date.now() - iniciadoEm,
-      atualizadoEm: new Date().toISOString(),
-    });
-  });
-
-  // Atualiza andamentos: consulta Datajud APENAS para processos pendentes
-  // (último snapshot com status = erro OU nao_encontrado, ou sem snapshot algum).
-  // Não mexe em processos com status "ok" nem "2o_grau".
-  app.post("/api/processos/atualizar-pendentes", async (_req, res) => {
-    const lista = await storage.listProcessos();
-
-    // Filtra pendentes: status erro/nao_encontrado ou sem snapshot
-    const pendentes = lista.filter((p) => {
-      const status = p.snapshot?.status;
-      return !status || status === "erro" || status === "nao_encontrado";
-    });
-
-    let ok = 0;
-    let naoEncontrado = 0;
-    let erro = 0;
-    let segundoGrau = 0;
-
-    await mapConcurrent(pendentes, 5, async (p) => {
-      let r = await consultarDatajud(p.numero, p.tribunal);
-
-      // Fallback: se não achou E tem cara de 2º grau, marca como 2o_grau
-      if (
-        r.status === "nao_encontrado" &&
-        tem2oGrauFallback(p.numero, p.tribunal)
-      ) {
-        r = { status: "2o_grau" as any, dados: undefined, erro: undefined };
-      }
-
-      await storage.upsertSnapshot(p.id, {
-        status: r.status,
-        erro: r.erro ?? null,
-        dados: r.dados ?? null,
-      });
-      if (r.status === "ok") ok++;
-      else if (r.status === "nao_encontrado") naoEncontrado++;
-      else if ((r.status as any) === "2o_grau") segundoGrau++;
-      else erro++;
-    });
-
-    res.json({
-      totalPendentes: pendentes.length,
-      totalGeral: lista.length,
-      ok,
-      naoEncontrado,
-      erro,
-      segundoGrau,
-      atualizadoEm: new Date().toISOString(),
-    });
-  });
-
-  // Atualiza andamentos: consulta Datajud APENAS para processos com status
-  // atual "2o_grau". Útil para reverificar periodicamente se algum agravo/
-  // ação rescisória passou a ter cobertura no Datajud (ou perdeu, virando
-  // fallback de novo).
-  app.post("/api/processos/atualizar-2ograu", async (_req, res) => {
-    const lista = await storage.listProcessos();
-    const segundoGrauLista = lista.filter(
-      (p) => p.snapshot?.status === "2o_grau",
-    );
-
-    let ok = 0;
-    let naoEncontrado = 0;
-    let erro = 0;
-    let segundoGrau = 0;
-
-    await mapConcurrent(segundoGrauLista, 5, async (p) => {
-      let r = await consultarDatajud(p.numero, p.tribunal);
-
-      // Mesmo fallback das outras rotas
-      if (
-        r.status === "nao_encontrado" &&
-        tem2oGrauFallback(p.numero, p.tribunal)
-      ) {
-        r = { status: "2o_grau" as any, dados: undefined, erro: undefined };
-      }
-
-      await storage.upsertSnapshot(p.id, {
-        status: r.status,
-        erro: r.erro ?? null,
-        dados: r.dados ?? null,
-      });
-      if (r.status === "ok") ok++;
-      else if (r.status === "nao_encontrado") naoEncontrado++;
-      else if ((r.status as any) === "2o_grau") segundoGrau++;
-      else erro++;
-    });
-
-    res.json({
-      total2oGrau: segundoGrauLista.length,
-      totalGeral: lista.length,
-      ok,
-      naoEncontrado,
-      erro,
-      segundoGrau,
-      atualizadoEm: new Date().toISOString(),
-    });
-  });
+  // Todos os modos usam requisições limitadas; a interface fixa os IDs da seleção.
+  registrarLotesAndamentos(app,pool,consultarDatajud,(id,data)=>storage.upsertSnapshot(id,data));
 
   // === FASE 1: Endpoint de teste do DJEN (Diário de Justiça Eletrônico Nacional) ===
   // Consulta publicações/intimações de um processo na API pública do CNJ.

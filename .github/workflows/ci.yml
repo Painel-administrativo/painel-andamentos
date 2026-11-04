@@ -42,6 +42,9 @@ jobs:
       - name: Testes de reconsulta DJEN
         run: node --import tsx script/test-djen-reconsulta.ts
 
+      - name: Testes de atualização de andamentos em lotes
+        run: node --import tsx script/test-andamentos-lotes.ts
+
       - name: Testes de autenticação
         run: npx tsx script/test-production-auth.ts
 

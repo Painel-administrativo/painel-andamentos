@@ -9,10 +9,10 @@ export async function checkResponse(res: Response) {
     throw new Error(body.error || body.erro || body.message || `Falha na solicitação (${res.status}).`);
   }
 }
-export async function apiRequest(method: string, url: string, data?: unknown): Promise<Response> {
+export async function apiRequest(method: string, url: string, data?: unknown, signal?: AbortSignal): Promise<Response> {
   const isWrite = method !== "GET" && method !== "HEAD";
   const res = await fetch(`${API_BASE}${url}`, {
-    method, credentials: "same-origin", cache: "no-store",
+    method, credentials: "same-origin", cache: "no-store", signal,
     headers: isWrite ? { "Content-Type": "application/json" } : undefined,
     body: isWrite ? JSON.stringify(data ?? {}) : undefined,
   });
