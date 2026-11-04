@@ -590,7 +590,7 @@ export class PgStorage implements IStorage {
          consultado_em = EXCLUDED.consultado_em,
          status = EXCLUDED.status,
          erro = EXCLUDED.erro,
-         dados_json = EXCLUDED.dados_json
+         dados_json = CASE WHEN EXCLUDED.status='erro' THEN COALESCE(snapshots.dados_json,EXCLUDED.dados_json) ELSE EXCLUDED.dados_json END
        RETURNING id, processo_id, consultado_em, status, erro, dados_json`,
       [
         processoId,

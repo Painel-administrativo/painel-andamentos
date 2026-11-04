@@ -1,3 +1,4 @@
+import {useAndamentosLotes,resumoLotes} from "@/hooks/use-andamentos-lotes";
 import { RelatoriosEscritorios } from "@/components/RelatoriosEscritorios";
 import { CalendarioSuspensoes } from "@/components/CalendarioSuspensoes";
 import { HistoricoDjen } from "@/components/HistoricoDjen";
@@ -77,9 +78,10 @@ export default function Home() {
   const [expandido, setExpandido] = useState<number | null>(null);
   const [confirmarDelete, setConfirmarDelete] = useState<ProcessoComSnapshot | null>(null);
 
-  const [atualizando, setAtualizando] = useState(false);
-  const [progresso, setProgresso] = useState<string | null>(null);
-  const [ultimaAtualizacao, setUltimaAtualizacao] = useState<string | null>(null);
+  const lotes=useAndamentosLotes(()=>{rebaseNaoLidos();queryClient.invalidateQueries({queryKey:["/api/processos"]});});
+  const atualizando=lotes.executando;
+  const progresso=lotes.plano?resumoLotes(lotes.plano):"Preparando atualização…";
+  const ultimaAtualizacao=lotes.plano?.cursor===lotes.plano?.ids.length?lotes.plano?.atualizadaEm:null;
   const [atualizandoIds, setAtualizandoIds] = useState<Set<number>>(new Set());
   // Modo de atualização: 'todos' (padrão), 'pendentes' (erro/nao_encontrado/sem
   // snapshot) ou '2ograu' (só os marcados como acompanhamento manual).
@@ -88,6 +90,7 @@ export default function Home() {
   const so2oGrau = modoAtualizar === "2ograu";
 
   async function handleAtualizarEste(id: number, apelido: string) {
+    if(atualizando){toast({title:"Atualização em lotes em andamento",description:"Aguarde ou pause a sequência antes de consultar individualmente."});return;}
     setAtualizandoIds((prev) => new Set(prev).add(id));
     try {
       const resp = await apiRequest("POST", `/api/processos/${id}/atualizar`, {});
@@ -146,66 +149,11 @@ export default function Home() {
   );
 
   async function handleAtualizar() {
-    if (processos.length === 0) return;
-
-    // Avisa se o modo escolhido não tem processos alvo
-    if (soPendentes && totalPendentes === 0) {
-      toast({
-        title: "Nenhum processo pendente",
-        description: "Todos os processos estão com status ok ou 2º grau.",
-      });
-      return;
-    }
-    if (so2oGrau && total2oGrau === 0) {
-      toast({
-        title: "Nenhum processo em 2º grau",
-        description: "Não há processos marcados como acompanhamento manual.",
-      });
-      return;
-    }
-
-    let endpoint: string;
-    let qtd: number;
-    let tituloOk: string;
-    if (soPendentes) {
-      endpoint = "/api/processos/atualizar-pendentes";
-      qtd = totalPendentes;
-      tituloOk = "Pendentes atualizados";
-    } else if (so2oGrau) {
-      endpoint = "/api/processos/atualizar-2ograu";
-      qtd = total2oGrau;
-      tituloOk = "2º grau reverificado";
-    } else {
-      endpoint = "/api/processos/atualizar";
-      qtd = processos.length;
-      tituloOk = "Andamentos atualizados";
-    }
-
-    setAtualizando(true);
-    setProgresso(`Consultando ${qtd} processo(s)...`);
-    try {
-      const resp = await apiRequest("POST", endpoint, {});
-      const data = await resp.json();
-      setUltimaAtualizacao(data.atualizadoEm);
-      // Rebase do Set congelado assim que os dados novos chegarem
-      rebaseNaoLidos();
-      queryClient.invalidateQueries({ queryKey: ["/api/processos"] });
-      const partes = [
-        `${data.ok} ok`,
-        data.segundoGrau ? `${data.segundoGrau} de 2º grau` : null,
-        data.naoEncontrado ? `${data.naoEncontrado} não encontrado(s)` : null,
-        data.erro ? `${data.erro} erro(s)` : null,
-      ].filter(Boolean);
-      toast({
-        title: tituloOk,
-        description: partes.join(" · "),
-      });
-    } catch (e: any) {
-      toast({ title: "Falha ao atualizar", description: e?.message, variant: "destructive" });
-    } finally {
-      setAtualizando(false);
-      setProgresso(null);
-    }
+    if(atualizandoIds.size>0)return;
+    if(lotes.pendente){await lotes.executar();return;}
+    const ids=processos.filter(p=>soPendentes?(!p.snapshot?.status||["erro","nao_encontrado"].includes(p.snapshot.status)):so2oGrau?p.snapshot?.status==="2o_grau":true).map(p=>Number(p.id));
+    if(!ids.length){toast({title:"Nenhum processo para consultar neste modo"});return;}
+    await lotes.executar(ids,modoAtualizar);
   }
 
   async function handleDelete() {
@@ -492,7 +440,7 @@ export default function Home() {
                   onCheckedChange={(v) =>
                     setModoAtualizar(v === true ? "pendentes" : "todos")
                   }
-                  disabled={atualizando}
+                  disabled={atualizando||lotes.pendente}
                   data-testid="checkbox-so-pendentes"
                 />
                 Só pendentes{totalPendentes > 0 ? ` (${totalPendentes})` : ""}
@@ -508,7 +456,7 @@ export default function Home() {
                   onCheckedChange={(v) =>
                     setModoAtualizar(v === true ? "2ograu" : "todos")
                   }
-                  disabled={atualizando}
+                  disabled={atualizando||lotes.pendente}
                   data-testid="checkbox-so-2ograu"
                 />
                 Só 2º grau{total2oGrau > 0 ? ` (${total2oGrau})` : ""}
@@ -518,22 +466,30 @@ export default function Home() {
               size="sm"
               onClick={handleAtualizar}
               disabled={
-                atualizando ||
-                processos.length === 0 ||
+                atualizando || atualizandoIds.size>0 ||
+                (!lotes.pendente && (processos.length === 0 ||
                 (soPendentes && totalPendentes === 0) ||
-                (so2oGrau && total2oGrau === 0)
+                (so2oGrau && total2oGrau === 0)))
               }
               data-testid="button-atualizar"
             >
               <RefreshCw className={`h-4 w-4 mr-1.5 ${atualizando ? "animate-spin" : ""}`} />
-              {soPendentes
+              {lotes.pendente ? "Retomar atualização" : soPendentes
                 ? "Atualizar pendentes"
                 : so2oGrau
                   ? "Reverificar 2º grau"
                   : "Atualizar andamentos"}
             </Button>
+            {atualizando&&<Button size="sm" variant="outline" onClick={lotes.pausar}>Pausar após este lote</Button>}
+            {!atualizando&&lotes.pendente&&<Button size="sm" variant="outline" onClick={lotes.encerrar}>Encerrar acompanhamento</Button>}
+            {!atualizando&&!lotes.pendente&&!!lotes.plano?.falhas.length&&<Button size="sm" variant="outline" onClick={()=>lotes.executar(lotes.plano!.falhas,"falhas")}>Reconsultar erros ({lotes.plano.falhas.length})</Button>}
           </div>
         </div>
+        {lotes.plano&&<div className="mb-4 rounded border p-3 text-sm" role="status" aria-live="polite">
+          <p>{atualizando?"Atualizando em lotes de até 3 processos":lotes.pendente?"Atualização pausada — retome neste navegador":lotes.plano.erro?"Consulta encerrada com falhas — confira os erros":"Consulta encerrada"} · {resumoLotes(lotes.plano)}</p>
+          <p className="text-muted-foreground">Seleção fixada no início ({lotes.plano.modo}). Mantenha a página aberta durante a consulta. Os resultados de cada lote são gravados; pausar ou encerrar não os apaga.</p>
+        </div>}
+        {lotes.erro&&<p className="mb-4 text-sm text-destructive" role="alert">{lotes.erro}</p>}
 
         <div hidden={aba !== "logs"}><HistoricoDjen /></div>
 
@@ -623,14 +579,14 @@ export default function Home() {
               ) : (
                 ultimaAtualizacao && (
                   <span data-testid="text-ultima-atualizacao">
-                    Atualizado {tempoRelativo(ultimaAtualizacao)}
+                    Consulta {tempoRelativo(ultimaAtualizacao)}{lotes.plano?.erro ? " · com falhas" : ""}
                   </span>
                 )
               )}
             </div>
 
             {/* Tabela */}
-            {isLoading || atualizando ? (
+            {isLoading ? (
               <TabelaSkeleton />
             ) : filtrados.length === 0 ? (
               <div className="rounded-lg border border-border p-10 text-center text-sm text-muted-foreground">
