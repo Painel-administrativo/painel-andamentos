@@ -9,15 +9,20 @@ const uuid=z.string().uuid();
 const grupoInput=z.object({nome:z.string().trim().min(3).max(120),numeros:z.array(z.string().transform(n=>n.replace(/\D/g,'')).pipe(z.string().length(20))).min(1).max(100)}).strict();
 const periodoInput=z.object({inicio:z.string().refine(dataValida),fim:z.string().refine(dataValida)}).strict().refine(v=>v.inicio<=v.fim&&Date.parse(v.fim)-Date.parse(v.inicio)<=30*86400000&&v.fim<=periodoSemanal().fim,'Período inválido; use até 31 dias e não inclua datas futuras.');
 const selectReport=`SELECT r.*,to_char(r.inicio,'YYYY-MM-DD') AS inicio,to_char(r.fim,'YYYY-MM-DD') AS fim FROM public.painel_rel_relatorios r`;
-export async function criarRelatorio(pool:Pool,grupo:string,periodo:z.infer<typeof periodoInput>) {
+export async function criarRelatorio(pool:Pool,grupo:string,periodo:z.infer<typeof periodoInput>,baseId?:string) {
  const db=await pool.connect();try{
   await db.query('BEGIN');
   const g=(await db.query('SELECT nome FROM public.painel_rel_grupos WHERE id=$1 FOR UPDATE',[grupo])).rows[0];if(!g)throw Error('Escritório não encontrado.');
+  let base:any=null;
+  if(baseId){base=(await db.query(`SELECT id,texto_final,conferido_em FROM public.painel_rel_relatorios WHERE id=$1 AND grupo_id=$2 AND estado='conferido' FOR SHARE`,[uuid.parse(baseId),grupo])).rows[0];
+   if(!base||!base.conferido_em||typeof base.texto_final!=='string'||base.texto_final.length<20)throw Error('Escolha um relatório conferido deste escritório, com texto preservado.');
+   if(base.texto_final.length>200000)throw Error('O texto anterior excede o limite de edição. Divida o relatório antes de reutilizar.');
+  }
   const membros=(await db.query(`SELECT p.id,regexp_replace(p.numero,'[^0-9]','','g') AS numero,p.apelido,p.tribunal FROM public.painel_rel_selecao s JOIN public.processos p ON p.id=s.processo_id WHERE s.grupo_id=$1 ORDER BY p.numero`,[grupo])).rows;
   if(!membros.length)throw Error('Selecione ao menos um processo para este escritório.');
-  const r=(await db.query(`INSERT INTO public.painel_rel_relatorios(grupo_id,nome_escritorio,inicio,fim) VALUES($1,$2,$3,$4) RETURNING id,criado_em`,[grupo,g.nome,periodo.inicio,periodo.fim])).rows[0];
+  const r=(await db.query(`INSERT INTO public.painel_rel_relatorios(grupo_id,nome_escritorio,inicio,fim,base_relatorio_id,texto_editado) VALUES($1,$2,$3,$4,$5,$6) RETURNING id,criado_em`,[grupo,g.nome,periodo.inicio,periodo.fim,base?.id??null,base?.texto_final??null])).rows[0];
   for(const p of membros){
-   const ant=(await db.query(`SELECT i.id,i.resultado FROM public.painel_rel_itens i JOIN public.painel_rel_relatorios r ON r.id=i.relatorio_id WHERE r.grupo_id=$1 AND i.numero=$2 AND r.estado='conferido' AND r.conferido_em<=$3 AND i.estado='ok' ORDER BY r.conferido_em DESC LIMIT 1`,[grupo,p.numero,r.criado_em])).rows[0];
+   const ant=(await db.query(`SELECT i.id,i.resultado FROM public.painel_rel_itens i JOIN public.painel_rel_relatorios r ON r.id=i.relatorio_id WHERE r.grupo_id=$1 AND i.numero=$2 AND r.estado='conferido' AND r.conferido_em<=$3 AND i.estado='ok' ORDER BY r.conferido_em DESC LIMIT 1`,[grupo,p.numero,base?.conferido_em??r.criado_em])).rows[0];
    await db.query(`INSERT INTO public.painel_rel_itens(relatorio_id,processo_id,numero,apelido,tribunal,referencia_id,referencia) VALUES($1,$2,$3,$4,$5,$6,$7)`,[r.id,p.id,p.numero,p.apelido,p.tribunal,ant?.id??null,ant?.resultado??null]);
   }
   await db.query('COMMIT');return {id:r.id,total:membros.length};
@@ -52,7 +57,8 @@ async function itensRelatorio(pool:Pool,id:string):Promise<ItemRelatorio[]> {
  return (await pool.query(`SELECT id,numero,apelido,tribunal,estado,consultado_em,erro,resultado FROM public.painel_rel_itens WHERE relatorio_id=$1 ORDER BY numero`,[id])).rows;
 }
 function gerarTexto(r:any,itens:ItemRelatorio[]) {
- const texto=formatarRelatorio(r.nome_escritorio,r.inicio,r.fim,itens);
+ let texto=formatarRelatorio(r.nome_escritorio,r.inicio,r.fim,itens);
+ if(r.base_relatorio_id)texto=texto.replace('Comparação com o último relatório conferido de cada processo; independente das publicações do DJEN.','Comparação com as referências disponíveis até a conferência do relatório escolhido como base; independente das publicações do DJEN.');
  if(texto.length>200000)throw Error('O relatório excedeu o limite de texto. Divida a carteira em grupos menores para revisar.');
  return texto;
 }
@@ -81,11 +87,24 @@ export function registrarRelatorios(app:Express,pool:Pool) {
   const total=(await pool.query('SELECT count(*)::integer AS n FROM public.painel_rel_relatorios WHERE grupo_id=$1',[grupo])).rows[0].n;res.json({items:r.rows,total});
  }catch(e){fail(res,e);}});
  app.post('/api/relatorios/grupos/:id/gerar',async(req,res)=>{try{const id=uuid.parse(req.params.id),periodo=periodoInput.parse(req.body);res.json(await criarRelatorio(pool,id,periodo));}catch(e){fail(res,e);}});
+ app.post('/api/relatorios/:id/usar-como-base',async(req,res)=>{try{
+  const id=uuid.parse(req.params.id),periodo=periodoInput.parse(req.body);
+  const origem=(await pool.query("SELECT grupo_id FROM public.painel_rel_relatorios WHERE id=$1 AND estado='conferido'",[id])).rows[0];
+  if(!origem)throw Error('Selecione um relatório anterior conferido para usar como base.');
+  res.json(await criarRelatorio(pool,origem.grupo_id,periodo,id));
+ }catch(e){fail(res,e);}});
  app.post('/api/relatorios/:id/coletar',async(req,res)=>{try{res.json(await coletarRelatorio(pool,uuid.parse(req.params.id)));}catch(e){fail(res,e);}});
  app.get('/api/relatorios/:id',async(req,res)=>{try{
   const id=uuid.parse(req.params.id),r=(await pool.query(`${selectReport} WHERE r.id=$1`,[id])).rows[0];if(!r){res.sendStatus(404);return;}
   const itens=await itensRelatorio(pool,id);const texto=r.estado==='conferido'?r.texto_final:r.texto_editado??(r.estado==='rascunho'?gerarTexto(r,itens):'');
-  res.json({...r,texto,itens:itens.map(i=>({...i,resultado:i.resultado?{inicial:i.resultado.inicial,ultimo:i.resultado.ultimo,totalMovimentos:i.resultado.totalMovimentos,avisos:i.resultado.avisos,atualizacaoFonte:i.resultado.atualizacaoFonte,novos:i.resultado.inicial?i.resultado.noPeriodo.length:i.resultado.novos.length}:null}))});
+  let base=null,diferencasBase={adicionados:[] as string[],foraSelecao:[] as string[]};
+  if(r.base_relatorio_id){
+   base=(await pool.query(`SELECT id,nome_escritorio,to_char(inicio,'YYYY-MM-DD') AS inicio,to_char(fim,'YYYY-MM-DD') AS fim FROM public.painel_rel_relatorios WHERE id=$1`,[r.base_relatorio_id])).rows[0]??null;
+   const anteriores=(await pool.query('SELECT numero FROM public.painel_rel_itens WHERE relatorio_id=$1',[r.base_relatorio_id])).rows.map(i=>i.numero);
+   const atuais=itens.map(i=>i.numero);diferencasBase={adicionados:atuais.filter(n=>!anteriores.includes(n)),foraSelecao:anteriores.filter(n=>!atuais.includes(n))};
+  }
+  const atualizacoesTexto=r.base_relatorio_id&&['rascunho','conferido'].includes(r.estado)?gerarTexto(r,itens):null;
+  res.json({...r,texto,base,diferencasBase,atualizacoesTexto,itens:itens.map(i=>({...i,resultado:i.resultado?{inicial:i.resultado.inicial,ultimo:i.resultado.ultimo,totalMovimentos:i.resultado.totalMovimentos,avisos:i.resultado.avisos,atualizacaoFonte:i.resultado.atualizacaoFonte,novos:i.resultado.inicial?i.resultado.noPeriodo.length:i.resultado.novos.length}:null}))});
  }catch(e){fail(res,e);}});
  app.patch('/api/relatorios/:id/texto',async(req,res)=>{try{
   const id=uuid.parse(req.params.id),v=z.object({texto:z.string().trim().min(20).max(200000),versao:z.number().int().nonnegative()}).strict().parse(req.body);
@@ -94,9 +113,10 @@ export function registrarRelatorios(app:Express,pool:Pool) {
  }catch(e){fail(res,e);}});
  app.post('/api/relatorios/:id/conferir',async(req,res)=>{
   const db=await pool.connect();try{
-   const id=uuid.parse(req.params.id),v=z.object({versao:z.number().int().nonnegative(),conferido:z.literal(true),inconclusivosReconhecidos:z.boolean()}).strict().parse(req.body);
+   const id=uuid.parse(req.params.id),v=z.object({versao:z.number().int().nonnegative(),conferido:z.literal(true),inconclusivosReconhecidos:z.boolean(),baseRevisada:z.boolean().optional()}).strict().parse(req.body);
    await db.query('BEGIN');const r=(await db.query(`${selectReport} WHERE r.id=$1 FOR UPDATE`,[id])).rows[0];
    if(!r||r.estado!=='rascunho'||r.versao!==v.versao)throw Error('Relatório alterado ou já conferido. Recarregue a prévia.');
+   if(r.base_relatorio_id&&!v.baseRevisada)throw Error('Confirme que revisou o período, os dados antigos e incorporou as atualizações ao texto reaproveitado.');
    const itens=(await db.query('SELECT * FROM public.painel_rel_itens WHERE relatorio_id=$1 ORDER BY numero',[id])).rows;
    if(itens.some(i=>['pendente','consultando'].includes(i.estado)))throw Error('Conclua a coleta antes da conferência.');
    if(itens.some(i=>i.estado==='inconclusivo')&&!v.inconclusivosReconhecidos)throw Error('Reconheça expressamente as consultas inconclusivas antes de confirmar.');

@@ -34,7 +34,7 @@ jobs:
         run: node --import tsx script/test-calendario.ts && node --import tsx script/test-calendario-revisao.ts && node script/test-calendario-pdf.mjs
 
       - name: Testes dos relatórios por escritório
-        run: node --import tsx script/test-relatorios.ts && node --import tsx script/test-relatorios-coleta.ts
+        run: node --import tsx script/test-relatorios.ts && node --import tsx script/test-relatorios-coleta.ts && node --import tsx script/test-relatorios-base.ts
 
       - name: Testes do ajuste manual de prazo
         run: node --import tsx script/test-prazo-manual.ts

@@ -45,3 +45,11 @@ O relatório separa data da consulta da atualização declarada pela fonte. Esta
 `node --import tsx script/test-relatorios.ts`; `node --import tsx script/test-relatorios-coleta.ts`; verificações de autenticação; TypeScript; builds do frontend/backend e handler Vercel. Casos cobertos: referência inicial, ausência de novidades, registro antigo incorporado depois, dados futuros, reordenação, múltiplos graus, metadados de redistribuição, falhas/truncamento de fonte, preservação de referência, tokens de lease, partes do texto e período em Brasília.
 
 Referências oficiais: https://www.cnj.jus.br/sistemas/datajud/api-publica/ e https://datajud-wiki.cnj.jus.br/api-publica/glossario/ .
+
+## Reaproveitar um relatório conferido
+
+Abra o relatório anterior, escolha o novo período e use **Usar relatório anterior como base**. Uma nova versão recebe uma cópia integral do texto final, preservando a ordem dos processos e as observações. O relatório original permanece intacto. Datas e informações antigas devem ser revisadas manualmente.
+
+A coleta consulta a seleção atual e compara com as referências disponíveis até a conferência do relatório escolhido como base. As atualizações ficam em uma área separada, copiável, sem substituir o editor. Alterações na seleção de processos são sinalizadas. A conferência exige confirmar também a revisão do conteúdo reaproveitado. Um rascunho já aberto impede criar outro; ele não é sobrescrito.
+
+Migração adicional: `scripts/relatorios-base.sql`. Testes: `node --import tsx script/test-relatorios-base.ts`.

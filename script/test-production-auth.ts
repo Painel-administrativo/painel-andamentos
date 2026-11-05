@@ -40,6 +40,7 @@ async function main() {
   app.post("/api/publicacoes/1/whatsapp", (_req, res) => res.json({ ok: true }));
   app.get("/api/publicacoes/1/whatsapp/previa", (_req,res)=>res.json({ok:true}));
   app.get("/api/whatsapp/config", (_req, res) => res.json({ configurado: false }));
+  app.post("/api/relatorios/1/usar-como-base", (_req,res)=>res.json({ok:true}));
   app.get("/api/relatorios/grupos", (_req, res) => res.json([]));
   app.post("/api/relatorios/grupos", (_req, res) => res.json({ok:true}));
   app.post("/api/relatorios/1/coletar", (_req, res) => res.json({ok:true}));
@@ -71,6 +72,7 @@ async function main() {
   try {
     await request("/api/publicacoes/1/prazo-manual/historico",401);
     await request("/api/publicacoes/1/prazo-manual",401,{method:"PATCH",headers:{"x-automation-token":config.automationKey!,"Content-Type":"application/json"},body:"{}"});
+    await request("/api/relatorios/1/usar-como-base",401,{method:"POST",headers:{"Content-Type":"application/json","x-automation-token":config.automationKey!},body:"{}"});
     await request("/api/relatorios/grupos", 401);
     await request("/api/relatorios/grupos", 401, {headers:{"x-automation-token":config.automationKey!}});
     await request("/api/relatorios/1/coletar", 401, {method:"POST",headers:{"Content-Type":"application/json","x-automation-token":config.automationKey!},body:"{}"});
@@ -106,6 +108,8 @@ async function main() {
     await request("/api/processos", 401, { headers: { cookie: refreshCookie } });
     refuseRefresh = false;
     const session = await cookie();
+    await request("/api/relatorios/1/usar-como-base",403,{method:"POST",headers:{cookie:session,Origin:"https://evil.example","Content-Type":"application/json"},body:"{}"});
+    await request("/api/relatorios/1/usar-como-base",200,{method:"POST",headers:{cookie:session,Origin:config.origin!,"Content-Type":"application/json"},body:"{}"});
     await request("/api/publicacoes/1/whatsapp/previa",200,{headers:{cookie:session}});
     await request("/api/monitoramento/logs/1/reconsultar",403,{method:"POST",headers:{cookie:session,Origin:"https://evil.example","Content-Type":"application/json"},body:"{}"});
     await request("/api/monitoramento/logs/1/reconsultar",200,{method:"POST",headers:{cookie:session,Origin:config.origin!,"Content-Type":"application/json"},body:"{}"});
