@@ -109,6 +109,7 @@ export function EnviarWhatsApp({ pub, anotacao }: { pub: PublicacaoComProcesso; 
           {existente && <p role="status" className="text-sm">Já existe uma tentativa para este número. Confira o resultado abaixo.</p>}
           {enviar.isError && <p role="alert" className="text-sm text-destructive">{enviar.error.message}</p>}
           {enviar.isSuccess && <p role="status" className="text-sm">{labels[enviar.data.status] || "Tentativa registrada"}. Confira o histórico.</p>}
+          {enviar.isSuccess&&enviar.data.codigo&&<div role="alert" className="text-sm border rounded p-3 space-y-1"><p>Resposta da Twilio: código {enviar.data.codigo}{enviar.data.statusHttp?` · HTTP ${enviar.data.statusHttp}`:''}.</p>{enviar.data.motivo&&<p>Motivo informado: {enviar.data.motivo}</p>}<p className="text-xs">Copie esta resposta para o diagnóstico. Credenciais e números são ocultados.</p></div>}
           <Button disabled={!valido || !config.data?.configurado || !historico.isSuccess || preparar.isPending || enviar.isPending || enviar.isSuccess} onClick={() => enviar.mutate()}>
             {enviar.isPending ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Send className="h-4 w-4 mr-2" />} Confirmar envio para {digits || "o destinatário"}
           </Button>
