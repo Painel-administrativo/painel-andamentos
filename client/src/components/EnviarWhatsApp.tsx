@@ -30,6 +30,7 @@ export function EnviarWhatsApp({ pub, anotacao }: { pub: PublicacaoComProcesso; 
   const [curadoria, setCuradoria] = useState("");
   const [consentimento, setConsentimento] = useState(false);
   const config = useQuery<{ configurado: boolean; provedor: string; pendencias: string[] }>({ queryKey: ["/api/whatsapp/config"], enabled: aberto, staleTime: 0 });
+  const testarConexao = useMutation<{autenticado:boolean;contaFinal:string|null;codigo:string|null;statusConta:string|null;ambiente:string;versao:string|null},Error>({mutationFn:async()=>(await apiRequest('POST','/api/whatsapp/testar-conexao')).json()});
   const key = [`/api/publicacoes/${pub.id}/whatsapp`];
   const historico = useQuery<Envio[]>({ queryKey: key, enabled: aberto, staleTime: 0, refetchInterval: aberto ? 5000 : false });
   const enviar = useMutation({
@@ -58,7 +59,7 @@ export function EnviarWhatsApp({ pub, anotacao }: { pub: PublicacaoComProcesso; 
     enviar.isSuccess && 'A tentativa foi registrada. Confira o resultado no histórico.',
   ].filter(Boolean);
   function abrir() {
-    setPrevia(null);setConferido(false);setConsentimento(false);enviar.reset();setAberto(true);preparar.mutate();
+    setPrevia(null);setConferido(false);setConsentimento(false);enviar.reset();testarConexao.reset();setAberto(true);preparar.mutate();
   }
   return <>
     <Button size="sm" variant="outline" className="h-7 text-xs" onClick={e => { e.stopPropagation(); abrir(); }}>
@@ -73,6 +74,13 @@ export function EnviarWhatsApp({ pub, anotacao }: { pub: PublicacaoComProcesso; 
             <p>O servidor não reconheceu todos os itens necessários para o envio pela Twilio.</p>
             {!!config.data?.pendencias?.length && <ul className="list-disc pl-5">{config.data.pendencias.map(p=><li key={p}>{configuracaoPendente[p] || p}</li>)}</ul>}
             <p>Se esses itens já foram salvos na Vercel, confira se estão no ambiente Production e faça um novo deploy. Depois, verifique novamente aqui. Você pode continuar preparando e revisando o aviso.</p>
+          </div>}
+          <Button variant="outline" size="sm" disabled={testarConexao.isPending||enviar.isPending} onClick={()=>testarConexao.mutate()}>{testarConexao.isPending?'Testando conexão…':'Testar conexão com Twilio (sem enviar)'}</Button>
+          {testarConexao.isError&&<p role="alert" className="text-sm text-destructive">Não foi possível executar o teste: {testarConexao.error.message}</p>}
+          {testarConexao.data&&<div role="status" className="border rounded p-3 text-sm space-y-2"><p>Ambiente: {testarConexao.data.ambiente} · Conta usada: {testarConexao.data.contaFinal?`AC…${testarConexao.data.contaFinal}`:'SID ausente ou inválido'}{testarConexao.data.versao?` · Versão: ${testarConexao.data.versao}`:''}</p>
+            <p>{testarConexao.data.autenticado?testarConexao.data.statusConta==='active'?'Autenticação aceita pela Twilio; conta ativa. O teste não verifica a aprovação do modelo nem a entrega de mensagens.':`Autenticação aceita, mas a conta está ${testarConexao.data.statusConta==='suspended'?'suspensa':'fechada'}. Consulte a Twilio.`:`A Twilio não confirmou a autenticação. Código: ${testarConexao.data.codigo}.`}</p>
+            {testarConexao.data.codigo==='20003'&&<p>Compare o final do Account SID acima com a conta selecionada no Console da Twilio. Se coincidirem, o provedor ainda está recusando as credenciais usadas nesta versão; confira o estado da conta ou envie este diagnóstico ao suporte Twilio.</p>}
+            <p className="text-xs text-muted-foreground">Nenhuma mensagem foi enviada. O token permanece no servidor.</p>
           </div>}
           <Button variant="outline" size="sm" disabled={config.isFetching} onClick={()=>void config.refetch()}>{config.isFetching?'Verificando…':'Verificar configuração novamente'}</Button>
         </div>

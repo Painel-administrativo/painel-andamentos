@@ -7,13 +7,26 @@ type Db={query:(sql:string,values?:any[])=>Promise<any>};
 export function twilioConfig(env:NodeJS.ProcessEnv=process.env){
  let origin='';try{const u=new URL(env.TWILIO_WEBHOOK_ORIGIN||env.AUTH_ORIGIN||'');if(u.protocol==='https:'&&!u.username&&!u.password&&!u.search&&!u.hash&&u.pathname==='/')origin=u.origin;}catch{}
  const raw=(env.TWILIO_WHATSAPP_FROM||'').trim();
- return{accountSid:(env.TWILIO_ACCOUNT_SID||'').trim(),authToken:env.TWILIO_AUTH_TOKEN||'',from:raw.startsWith('whatsapp:')?raw:`whatsapp:${raw}`,contentSid:(env.TWILIO_CONTENT_SID||'').trim(),origin};
+ return{accountSid:(env.TWILIO_ACCOUNT_SID||'').trim(),authToken:(env.TWILIO_AUTH_TOKEN||'').trim(),from:raw.startsWith('whatsapp:')?raw:`whatsapp:${raw}`,contentSid:(env.TWILIO_CONTENT_SID||'').trim(),origin};
 }
 export type TwilioConfig=ReturnType<typeof twilioConfig>;
 export function pendenciasTwilio(c:TwilioConfig){
  return [!/^AC[a-fA-F0-9]{32}$/.test(c.accountSid)&&'Conta Twilio',!c.authToken&&'Credencial da conta',!/^whatsapp:\+[1-9]\d{7,14}$/.test(c.from)&&'Remetente WhatsApp',!/^HX[a-fA-F0-9]{32}$/.test(c.contentSid)&&'Modelo de mensagem',!c.origin&&'Endereço público do aplicativo'].filter(Boolean) as string[];
 }
 export const twilioReady=(c:TwilioConfig)=>pendenciasTwilio(c).length===0;
+// Read-only authentication check. Never return the Account API payload: it can
+// include auth_token and other private account details.
+export async function testarConexaoTwilio(c:TwilioConfig,transport:typeof fetch=fetch){
+ const contaFinal=/^AC[a-fA-F0-9]{32}$/.test(c.accountSid)?c.accountSid.slice(-6):null;
+ if(!contaFinal||!c.authToken)return{autenticado:false,contaFinal,codigo:'CONFIGURACAO_INCOMPLETA',statusConta:null};
+ try{
+  const r=await transport(`https://api.twilio.com/2010-04-01/Accounts/${c.accountSid}.json`,{method:'GET',redirect:'error',signal:AbortSignal.timeout(10000),headers:{Authorization:`Basic ${Buffer.from(`${c.accountSid}:${c.authToken}`).toString('base64')}`,Accept:'application/json'}});
+  const data=await r.json().catch(()=>null);
+  if(!r.ok)return{autenticado:false,contaFinal,codigo:typeof data?.code==='number'?String(data.code):`HTTP_${r.status}`,statusConta:null};
+  if(data?.sid!==c.accountSid||!['active','suspended','closed'].includes(data?.status))return{autenticado:false,contaFinal,codigo:'RESPOSTA_INVALIDA',statusConta:null};
+  return{autenticado:true,contaFinal,codigo:null,statusConta:data.status as string};
+ }catch{return{autenticado:false,contaFinal,codigo:'CONEXAO_INCONCLUSIVA',statusConta:null};}
+}
 export const callbackTwilio=(c:TwilioConfig,id:string)=>`${c.origin}/api/whatsapp/twilio/status/${id}`;
 export async function enviarTwilio(c:TwilioConfig,id:string,telefone:string,values:string[],transport:typeof fetch=fetch){
  try{
@@ -49,6 +62,11 @@ export function registrarWebhookTwilio(app:Express,db:Db,config=twilioConfig){
  });
 }
 export function registrarEnviosTwilio(app:Express,db:Db,getPublicacao:(id:number)=>Promise<any>,config=twilioConfig,transport:typeof fetch=fetch){
+ app.post('/api/whatsapp/testar-conexao',async(_req,res)=>{
+  const ambiente=['production','preview','development'].includes(process.env.VERCEL_ENV||'')?process.env.VERCEL_ENV:'não informado';
+  const versao=/^[a-f0-9]{40}$/i.test(process.env.VERCEL_GIT_COMMIT_SHA||'')?process.env.VERCEL_GIT_COMMIT_SHA!.slice(0,7):null;
+  res.json({...await testarConexaoTwilio(config(),transport),ambiente,versao});
+ });
  app.get('/api/whatsapp/config',(_req,res)=>{const c=config();res.json({provedor:'twilio',configurado:twilioReady(c),pendencias:pendenciasTwilio(c),versaoModelo:'aviso10',variaveis:10});});
  app.get('/api/publicacoes/:id/whatsapp/previa',async(req,res)=>{
   const id=Number(req.params.id);if(!Number.isSafeInteger(id)||id<=0){res.sendStatus(400);return;}
