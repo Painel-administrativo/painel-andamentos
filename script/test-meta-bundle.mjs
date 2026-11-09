@@ -29,7 +29,7 @@ try {
   assert.equal((await fetch(base+"/api/publicacoes/7/whatsapp",{method:"POST",headers:{"Content-Type":"application/json",Origin:process.env.AUTH_ORIGIN},body:"{}"})).status,401);
   assert.equal((await fetch(base+"/api/publicacoes/7/whatsapp",{method:"POST",headers:{"Content-Type":"application/json","x-automation-token":process.env.AUTH_AUTOMATION_TOKEN},body:"{}"})).status,401);
   const twilioPath="/api/whatsapp/twilio/status/aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee";
-  const params={AccountSid:process.env.TWILIO_ACCOUNT_SID,MessageSid:"SM"+"b".repeat(32),MessageStatus:"future-status",To:"whatsapp:+5521999999999",From:process.env.TWILIO_WHATSAPP_FROM,FutureParameter:"accepted"};
+  const params={AccountSid:process.env.TWILIO_ACCOUNT_SID,MessageSid:"MM"+"b".repeat(32),MessageStatus:"future-status",To:"whatsapp:+5521999999999",From:process.env.TWILIO_WHATSAPP_FROM,FutureParameter:"accepted"};
   const sig=getExpectedTwilioSignature(process.env.TWILIO_AUTH_TOKEN,process.env.AUTH_ORIGIN+twilioPath,params);
   const form=new URLSearchParams(params).toString();
   assert.equal((await fetch(base+twilioPath,{method:"POST",headers:{"Content-Type":"application/x-www-form-urlencoded","x-twilio-signature":sig},body:form})).status,204);
