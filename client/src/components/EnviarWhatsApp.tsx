@@ -1,6 +1,8 @@
+import type {Contato} from '@shared/contatos';
+import {atualizarContatos} from '@/components/Contatos';
 import {podeRepetirEnvio} from '@shared/whatsapp-repeticao';
 import {comporAviso,LIMITE_AVISO,type CamposAviso} from "@shared/whatsapp-aviso";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { Button } from "@/components/ui/button";
@@ -32,6 +34,14 @@ export function EnviarWhatsApp({ pub, anotacao }: { pub: PublicacaoComProcesso; 
   const [consentimento, setConsentimento] = useState(false);
   const config = useQuery<{ configurado: boolean; provedor: string; pendencias: string[] }>({ queryKey: ["/api/whatsapp/config"], enabled: aberto, staleTime: 0 });
   const testarConexao = useMutation<{autenticado:boolean;contaFinal:string|null;codigo:string|null;statusConta:string|null;ambiente:string;versao:string|null},Error>({mutationFn:async()=>(await apiRequest('POST','/api/whatsapp/testar-conexao')).json()});
+  const [contatoId,setContatoId]=useState(''),[buscaContato,setBuscaContato]=useState(''),[contatoInicializado,setContatoInicializado]=useState(false);
+  const contatos=useQuery<Contato[]>({queryKey:['/api/contatos'],enabled:aberto,staleTime:0});
+  const vinculados=useQuery<Contato[]>({queryKey:['contatos-processo',pub.processoId],queryFn:async()=>(await apiRequest('GET',`/api/processos/${pub.processoId}/contatos`)).json(),enabled:aberto,staleTime:0});
+  const vincular=useMutation({mutationFn:async()=>{await apiRequest('PUT',`/api/processos/${pub.processoId}/contatos/${contatoId}`);},onSuccess:atualizarContatos});
+  function selecionarContato(c:Contato){setContatoId(c.id);setNome(c.nome);setTelefone(c.telefone);setConsentimento(false);setConferido(false);setContatoInicializado(true);enviar.reset();}
+  useEffect(()=>{if(aberto&&!contatoInicializado&&contatos.isSuccess&&vinculados.isSuccess){if(vinculados.data.length===1){const c=contatos.data.find(c=>c.id===vinculados.data[0].id);if(c)selecionarContato(c);}setContatoInicializado(true);}},[aberto,contatoInicializado,contatos.data,vinculados.data,contatos.isSuccess,vinculados.isSuccess]);
+  const idsVinculados=new Set(vinculados.data?.map(c=>c.id)||[]);
+  const opcoes=(contatos.data||[]).filter(c=>c.id===contatoId||`${c.nome} ${c.telefone}`.toLowerCase().includes(buscaContato.toLowerCase()));
   const key = [`/api/publicacoes/${pub.id}/whatsapp`];
   const historico = useQuery<Envio[]>({ queryKey: key, enabled: aberto, staleTime: 0, refetchInterval: aberto ? 5000 : false });
   const enviar = useMutation({
@@ -59,7 +69,7 @@ export function EnviarWhatsApp({ pub, anotacao }: { pub: PublicacaoComProcesso; 
     enviar.isSuccess && 'A tentativa foi registrada. Confira o resultado no histórico.',
   ].filter(Boolean);
   function abrir() {
-    setPrevia(null);setConferido(false);setConsentimento(false);enviar.reset();testarConexao.reset();setAberto(true);preparar.mutate();
+    setPrevia(null);setConferido(false);setConsentimento(false);enviar.reset();testarConexao.reset();setContatoId('');setBuscaContato('');setContatoInicializado(false);setNome('');setTelefone('');setAberto(true);preparar.mutate();
   }
   return <>
     <Button size="sm" variant="outline" className="h-7 text-xs" onClick={e => { e.stopPropagation(); abrir(); }}>
@@ -85,8 +95,9 @@ export function EnviarWhatsApp({ pub, anotacao }: { pub: PublicacaoComProcesso; 
           <Button variant="outline" size="sm" disabled={config.isFetching} onClick={()=>void config.refetch()}>{config.isFetching?'Verificando…':'Verificar configuração novamente'}</Button>
         </div>
         <div className="space-y-3">
-          <label className="block text-sm">Nome do destinatário<Input value={nome} maxLength={100} onChange={e => {setNome(e.target.value);setConsentimento(false);enviar.reset();}} placeholder="Advogado ou assinante" /></label>
-          <label className="block text-sm">WhatsApp com país e DDD<Input type="tel" value={telefone} onChange={e => {setTelefone(e.target.value);setConsentimento(false);enviar.reset();}} placeholder="55 21 99999-9999" /></label>
+          <div className="border rounded p-3 space-y-2"><p className="text-sm font-medium">Contato cadastrado</p><Input aria-label="Buscar contato para envio" placeholder="Buscar por nome ou WhatsApp" value={buscaContato} onChange={e=>setBuscaContato(e.target.value)}/><select aria-label="Selecionar contato para envio" className="w-full border rounded p-2 bg-background text-sm" value={contatoId} disabled={contatos.isLoading||enviar.isPending} onChange={e=>{const c=contatos.data?.find(c=>c.id===e.target.value);if(c)selecionarContato(c);else{setContatoId('');setContatoInicializado(true);}}}><option value="">Selecionar contato ou preencher manualmente</option><optgroup label="Vinculados a este processo">{opcoes.filter(c=>idsVinculados.has(c.id)).map(c=><option key={c.id} value={c.id}>{c.nome} · +{c.telefone}</option>)}</optgroup><optgroup label="Outros contatos">{opcoes.filter(c=>!idsVinculados.has(c.id)).map(c=><option key={c.id} value={c.id}>{c.nome} · +{c.telefone}</option>)}</optgroup></select>{contatos.isSuccess&&contatos.data.length===0&&<p className="text-xs">Cadastre seus destinatários na aba Contatos.</p>}{(contatos.isError||vinculados.isError)&&<div role="alert" className="text-xs"><p>Não foi possível carregar todos os contatos ou vínculos. Você pode preencher o destinatário manualmente.</p><Button size="sm" variant="outline" onClick={()=>{void contatos.refetch();void vinculados.refetch();}}>Recarregar contatos</Button></div>}{contatoId&&!idsVinculados.has(contatoId)&&vinculados.isSuccess&&<Button variant="outline" size="sm" disabled={vincular.isPending||enviar.isPending} onClick={()=>vincular.mutate()}>Vincular este contato ao processo</Button>}{contatoId&&idsVinculados.has(contatoId)&&<p className="text-xs">Contato vinculado a este processo.</p>}{vincular.isError&&<p role="alert" className="text-xs text-destructive">{vincular.error.message}</p>}<p className="text-xs text-muted-foreground">Selecionar ou vincular apenas preenche o destinatário. Confira nome, número e autorização antes de enviar.</p></div>
+          <label className="block text-sm">Nome do destinatário<Input value={nome} maxLength={100} onChange={e => {setNome(e.target.value);setContatoId('');setContatoInicializado(true);setConsentimento(false);enviar.reset();}} placeholder="Advogado ou assinante" /></label>
+          <label className="block text-sm">WhatsApp com país e DDD<Input type="tel" value={telefone} onChange={e => {setTelefone(e.target.value);setContatoId('');setContatoInicializado(true);setConsentimento(false);enviar.reset();}} placeholder="55 21 99999-9999" /></label>
           {preparar.isPending && <p role="status">Preparando publicação, datas e prazo…</p>}
           {preparar.isError && <p role="alert" className="text-destructive">{preparar.error.message}</p>}
           <Button variant="outline" size="sm" disabled={preparar.isPending||enviar.isPending} onClick={()=>{setPrevia(null);setConferido(false);preparar.mutate();}}>Atualizar prévia e dados da publicação</Button>

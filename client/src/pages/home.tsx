@@ -1,3 +1,4 @@
+import {Contatos} from "@/components/Contatos";
 import {useAndamentosLotes,resumoLotes} from "@/hooks/use-andamentos-lotes";
 import { RelatoriosEscritorios } from "@/components/RelatoriosEscritorios";
 import { CalendarioSuspensoes } from "@/components/CalendarioSuspensoes";
@@ -66,7 +67,7 @@ export default function Home() {
   const { toast } = useToast();
   const { theme, toggle } = useTheme();
 
-  const [aba, setAba] = useState<"painel" | "processos" | "publicacoes" | "logs" | "calendario" | "relatorios">("painel");
+  const [aba, setAba] = useState<"painel" | "processos" | "publicacoes" | "logs" | "calendario" | "relatorios" | "contatos">("painel");
   const [busca, setBusca] = useState("");
   const [filtroTribunal, setFiltroTribunal] = useState<"Todos" | "TJRJ" | "TRF2" | "TRT1" | "TJSP" | "TJRS">("Todos");
   const [soRecentes, setSoRecentes] = useState(false);
@@ -388,7 +389,7 @@ export default function Home() {
         {/* Barra de controle */}
         <div className="flex flex-col gap-3 mb-5">
           <Tabs className="min-w-0 w-full" value={aba} onValueChange={(v) => setAba(v as any)}>
-            <TabsList className="h-auto min-h-10 w-full grid grid-cols-2 gap-1 sm:grid-cols-6">
+            <TabsList className="h-auto min-h-10 w-full grid grid-cols-2 gap-1 sm:grid-cols-4 lg:grid-cols-7">
               <TabsTrigger className="min-w-0 whitespace-normal px-2 text-xs sm:text-sm" value="painel" data-testid="tab-painel">
                 Painel de andamentos
               </TabsTrigger>
@@ -405,10 +406,11 @@ export default function Home() {
               <TabsTrigger className="min-w-0 whitespace-normal px-2 text-xs sm:text-sm" value="logs" data-testid="tab-logs">Histórico DJEN</TabsTrigger>
               <TabsTrigger className="min-w-0 whitespace-normal px-2 text-xs sm:text-sm" value="calendario">Calendário e suspensões</TabsTrigger>
               <TabsTrigger className="min-w-0 whitespace-normal px-2 text-xs sm:text-sm" value="relatorios">Relatórios</TabsTrigger>
+              <TabsTrigger className="min-w-0 whitespace-normal px-2 text-xs sm:text-sm" value="contatos">Contatos</TabsTrigger>
             </TabsList>
           </Tabs>
 
-          <div className="flex flex-wrap items-center gap-2">
+          <div className={aba === "contatos" ? "hidden" : "flex flex-wrap items-center gap-2"}>
             <Button
               variant="outline"
               size="sm"
@@ -494,7 +496,7 @@ export default function Home() {
         <div hidden={aba !== "logs"}><HistoricoDjen /></div>
 
         {/* Aba "Publicações" — substitui a tabela toda */}
-        {aba === "relatorios" ? <RelatoriosEscritorios /> : aba === "calendario" ? <CalendarioSuspensoes /> : aba === "logs" ? null : aba === "publicacoes" ? (
+        {aba === "contatos" ? <Contatos /> : aba === "relatorios" ? <RelatoriosEscritorios /> : aba === "calendario" ? <CalendarioSuspensoes /> : aba === "logs" ? null : aba === "publicacoes" ? (
           <CardPublicacoes />
         ) : semProcessos ? (
           <EmptyState onAdd={() => setAddOpen(true)} onBulk={() => setBulkOpen(true)} />
