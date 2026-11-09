@@ -1,3 +1,4 @@
+import {registrarContatos} from "./contatos-routes";
 import {consultarFonteAndamentos,registrarLotesAndamentos} from "./andamentos-lotes";
 import {registrarReconsultaDjen} from "./djen-reconsulta";
 import { registrarRelatorios } from "./relatorios-routes";
@@ -124,6 +125,7 @@ export async function registerRoutes(
   registrarReconsultaDjen(app,pool,(id,items)=>storage.inserirPublicacoes(id,items));
   registrarAjustePrazo(app, pool);
   registrarRelatorios(app, pool);
+  registrarContatos(app, pool);
 
   app.get("/api/monitoramento/logs", async (_req, res) => {
     try {
