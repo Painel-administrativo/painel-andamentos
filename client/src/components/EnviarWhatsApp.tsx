@@ -8,7 +8,7 @@ import { Input } from "@/components/ui/input";
 import { Send, Loader2 } from "lucide-react";
 import type { PublicacaoComProcesso } from "@shared/schema";
 
-type Envio = { provedor?: "meta" | "twilio"; id: string; nome: string; telefone: string; status: string; erro_codigo: string | null; criado_em: string };
+type Envio = { twilio_id?: string | null; provedor?: "meta" | "twilio"; id: string; nome: string; telefone: string; status: string; erro_codigo: string | null; criado_em: string };
 const configuracaoPendente: Record<string, string> = {
   'Conta Twilio': 'TWILIO_ACCOUNT_SID (SID da conta, iniciado por AC)',
   'Credencial da conta': 'TWILIO_AUTH_TOKEN (token da mesma conta)',
@@ -39,9 +39,24 @@ export function EnviarWhatsApp({ pub, anotacao }: { pub: PublicacaoComProcesso; 
   const preparar=useMutation({mutationFn:async()=>(await apiRequest("GET",`/api/publicacoes/${pub.id}/whatsapp/previa`)).json(),onSuccess:(p)=>{setPrevia(p);setTextoPublicacao(p.campos.texto);setAcao(p.campos.acao);setCuradoria(p.campos.curadoria);setConferido(false);enviar.reset();}});
   const digits = telefone.replace(/[\s()+.-]/g, "");
   const texto = previa ? comporAviso({...previa.campos,texto:textoPublicacao,acao,curadoria}).texto : "";
-  const existente = historico.data?.some(v => v.telefone === digits);
+  const falhaAutenticacao = (v: Envio) => v.provedor === 'twilio' && v.status === 'falha' && v.erro_codigo === '20003' && v.twilio_id === null;
+  const existente = historico.data?.some(v => v.telefone === digits && !falhaAutenticacao(v));
+  const novaTentativa = historico.data?.some(v => v.telefone === digits && falhaAutenticacao(v));
   const valido = previa && nome.trim().length >= 2 && /^[1-9]\d{7,14}$/.test(digits) && textoPublicacao.trim() && acao.trim() && curadoria.trim() &&
     textoPublicacao.length<=4000 && acao.length<=350 && curadoria.length<=1000 && texto.length<=LIMITE_AVISO && consentimento && conferido && !existente;
+  const motivos = [
+    !config.data?.configurado && 'Verifique a configuração Twilio acima.',
+    !historico.isSuccess && 'Aguarde o histórico de envios carregar.',
+    !previa && 'Prepare a prévia da publicação.',
+    nome.trim().length < 2 && 'Preencha o nome do destinatário.',
+    !/^[1-9]\d{7,14}$/.test(digits) && 'Informe o número com país e DDD.',
+    previa && (!textoPublicacao.trim() || !acao.trim() || !curadoria.trim()) && 'Preencha texto, ação e curadoria.',
+    (textoPublicacao.length>4000 || acao.length>350 || curadoria.length>1000 || texto.length>LIMITE_AVISO) && 'Reduza os campos aos limites indicados.',
+    !conferido && 'Marque a conferência da mensagem.',
+    !consentimento && 'Marque a confirmação do destinatário e da autorização.',
+    existente && 'Já existe uma tentativa que impede novo envio para este número.',
+    enviar.isSuccess && 'A tentativa foi registrada. Confira o resultado no histórico.',
+  ].filter(Boolean);
   function abrir() {
     setPrevia(null);setConferido(false);setConsentimento(false);enviar.reset();setAberto(true);preparar.mutate();
   }
@@ -62,8 +77,8 @@ export function EnviarWhatsApp({ pub, anotacao }: { pub: PublicacaoComProcesso; 
           <Button variant="outline" size="sm" disabled={config.isFetching} onClick={()=>void config.refetch()}>{config.isFetching?'Verificando…':'Verificar configuração novamente'}</Button>
         </div>
         <div className="space-y-3">
-          <label className="block text-sm">Nome do destinatário<Input value={nome} maxLength={100} onChange={e => {setNome(e.target.value);setConsentimento(false);}} placeholder="Advogado ou assinante" /></label>
-          <label className="block text-sm">WhatsApp com país e DDD<Input type="tel" value={telefone} onChange={e => {setTelefone(e.target.value);setConsentimento(false);}} placeholder="55 21 99999-9999" /></label>
+          <label className="block text-sm">Nome do destinatário<Input value={nome} maxLength={100} onChange={e => {setNome(e.target.value);setConsentimento(false);enviar.reset();}} placeholder="Advogado ou assinante" /></label>
+          <label className="block text-sm">WhatsApp com país e DDD<Input type="tel" value={telefone} onChange={e => {setTelefone(e.target.value);setConsentimento(false);enviar.reset();}} placeholder="55 21 99999-9999" /></label>
           {preparar.isPending && <p role="status">Preparando publicação, datas e prazo…</p>}
           {preparar.isError && <p role="alert" className="text-destructive">{preparar.error.message}</p>}
           <Button variant="outline" size="sm" disabled={preparar.isPending||enviar.isPending} onClick={()=>{setPrevia(null);setConferido(false);preparar.mutate();}}>Atualizar prévia e dados da publicação</Button>
@@ -81,6 +96,8 @@ export function EnviarWhatsApp({ pub, anotacao }: { pub: PublicacaoComProcesso; 
           </>}
           <label className="flex gap-2 text-sm items-start"><input type="checkbox" checked={consentimento} onChange={e => setConsentimento(e.target.checked)} className="mt-1" />
             Conferi que este número pertence ao destinatário indicado e que ele autorizou o recebimento dos avisos.</label>
+          {novaTentativa && !existente && <p className="text-sm">A tentativa anterior foi recusada por autenticação (20003). Após corrigir as credenciais, você pode confirmar uma nova tentativa. O histórico anterior será preservado.</p>}
+          {!!motivos.length && <div className="text-xs text-muted-foreground" role="status"><p>Para habilitar o envio:</p><ul className="list-disc pl-5">{motivos.map((m,i)=><li key={i}>{m}</li>)}</ul></div>}
           {existente && <p role="status" className="text-sm">Já existe uma tentativa para este número. Confira o resultado abaixo.</p>}
           {enviar.isError && <p role="alert" className="text-sm text-destructive">{enviar.error.message}</p>}
           {enviar.isSuccess && <p role="status" className="text-sm">{labels[enviar.data.status] || "Tentativa registrada"}. Confira o histórico.</p>}
