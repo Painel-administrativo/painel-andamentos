@@ -128,7 +128,7 @@ export default function Home() {
     }
   }
 
-  const { data: processos = [], isLoading } = useQuery<ProcessoComSnapshot[]>({
+  const { data: processos = [], isLoading, error: erroProcessos, refetch: recarregarProcessos, isFetching: recarregandoProcessos } = useQuery<ProcessoComSnapshot[]>({
     queryKey: ["/api/processos"],
   });
 
@@ -353,7 +353,7 @@ export default function Home() {
     }
   }
 
-  const semProcessos = !isLoading && processos.length === 0;
+  const semProcessos = !isLoading && !erroProcessos && processos.length === 0;
 
   return (
     <div className="min-h-screen bg-background text-foreground">
@@ -585,10 +585,11 @@ export default function Home() {
               )}
             </div>
 
+            {erroProcessos && <div role="alert" className="rounded-lg border border-destructive p-4 mb-3 space-y-2"><p className="text-sm">{erroProcessos.message}</p><Button variant="outline" disabled={recarregandoProcessos} onClick={()=>void recarregarProcessos()}>{recarregandoProcessos?'Carregando…':'Tentar carregar processos novamente'}</Button></div>}
             {/* Tabela */}
             {isLoading ? (
               <TabelaSkeleton />
-            ) : filtrados.length === 0 ? (
+            ) : erroProcessos && processos.length === 0 ? null : filtrados.length === 0 ? (
               <div className="rounded-lg border border-border p-10 text-center text-sm text-muted-foreground">
                 Nenhum processo corresponde aos filtros.
               </div>

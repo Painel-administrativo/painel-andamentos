@@ -145,8 +145,23 @@ export async function registerRoutes(
 
   // Lista processos + último snapshot
   app.get("/api/processos", async (_req, res) => {
-    const lista = await storage.listProcessos();
-    res.json(lista);
+    try {
+      const lista = await storage.listProcessos();
+      res.json(lista);
+    } catch (err: any) {
+      const code = typeof err?.code === 'string' && /^[A-Z0-9_]{2,40}$/.test(err.code) ? err.code : 'SEM_CODIGO';
+      console.error('[processos] falha ao listar', {code, name: err?.name || 'Error'});
+      const detalhes: Record<string,string> = {
+        '28P01': 'A conexão com o banco foi recusada. Confira DATABASE_URL no ambiente Production da Vercel.',
+        '28000': 'O banco recusou a autorização da conexão. Confira DATABASE_URL e o usuário do banco.',
+        '3D000': 'O banco configurado não foi encontrado. Confira DATABASE_URL.',
+        '42P01': 'Uma tabela necessária não foi encontrada no banco configurado.',
+        '42703': 'Uma coluna necessária não foi encontrada. Confira as migrações do banco.',
+        '42501': 'O usuário da conexão não tem permissão para consultar os processos.',
+        '53300': 'O banco atingiu o limite de conexões. Tente novamente em instantes.',
+      };
+      res.status(503).json({error: (detalhes[code] || 'Não foi possível carregar os processos. Tente novamente; se persistir, consulte os logs da Vercel.') + ` Referência: ${code}.`,codigo:code});
+    }
   });
 
   // Movimentos do último snapshot de um processo

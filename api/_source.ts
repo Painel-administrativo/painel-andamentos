@@ -30,7 +30,7 @@ const readyPromise = (async () => {
       _next: express.NextFunction,
     ) => {
       if (res.headersSent) return;
-      console.error("express error:", err?.name || "Error");
+      console.error("express error:", {name: err?.name || "Error", code: typeof err?.code === "string" && /^[A-Z0-9_]{2,40}$/.test(err.code) ? err.code : "SEM_CODIGO"});
       const status = err.status || err.statusCode || 500;
       res
         .status(status)

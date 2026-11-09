@@ -56,7 +56,7 @@ export function registrarEnviosTwilio(app:Express,db:Db,getPublicacao:(id:number
  });
  app.get('/api/publicacoes/:id/whatsapp',async(req,res)=>{
   const id=Number(req.params.id);if(!Number.isSafeInteger(id)||id<=0){res.sendStatus(400);return;}
-  try{res.json((await db.query('SELECT id,nome,telefone,status,erro_codigo,provedor,criado_em,atualizado_em FROM public.painel_whatsapp_envios WHERE publicacao_id=$1 ORDER BY criado_em DESC LIMIT 20',[id])).rows);}catch{res.status(503).json({error:'Não foi possível consultar os envios.'});}
+  try{res.json((await db.query('SELECT id,nome,telefone,status,erro_codigo,provedor,twilio_id,criado_em,atualizado_em FROM public.painel_whatsapp_envios WHERE publicacao_id=$1 ORDER BY criado_em DESC LIMIT 20',[id])).rows);}catch{res.status(503).json({error:'Não foi possível consultar os envios.'});}
  });
  app.post('/api/publicacoes/:id/whatsapp',async(req,res)=>{
   const c=config();if(!twilioReady(c)){res.status(503).json({error:'Configure a integração Twilio no servidor antes de enviar.'});return;}
@@ -69,7 +69,7 @@ export function registrarEnviosTwilio(app:Express,db:Db,getPublicacao:(id:number
    let aviso;try{aviso=confirmarAviso(previa,input.data);}catch(e){res.status(409).json({error:e instanceof Error?e.message:'Atualize a prévia.'});return;}
    const{values,texto}=aviso;
    const r=await db.query(`INSERT INTO public.painel_whatsapp_envios(publicacao_id,nome,telefone,texto,template,phone_number_id,consentimento_em,provedor,provider_account_sid)
-    VALUES($1,$2,$3,$4,$5,$6,now(),'twilio',$7) ON CONFLICT(publicacao_id,telefone) DO NOTHING RETURNING id`,[id,input.data.nome,input.data.telefone,texto,c.contentSid,c.from,c.accountSid]);
+    VALUES($1,$2,$3,$4,$5,$6,now(),'twilio',$7) ON CONFLICT DO NOTHING RETURNING id`,[id,input.data.nome,input.data.telefone,texto,c.contentSid,c.from,c.accountSid]);
    row=r.rows[0];if(!row){res.status(409).json({error:'Já existe uma tentativa para esta publicação e número. Confira o histórico antes de reenviar.'});return;}
    const result=await enviarTwilio(c,row.id,input.data.telefone,values,transport);
    await db.query(`UPDATE public.painel_whatsapp_envios SET status=$2,twilio_id=COALESCE(twilio_id,$3),erro_codigo=$4,status_ordem=1,atualizado_em=now() WHERE id=$1 AND provedor='twilio' AND status_ordem=0`,[row.id,result.status,result.twilioId,result.codigo]);
