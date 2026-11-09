@@ -1,8 +1,16 @@
+import {podeRepetirEnvio} from '../shared/whatsapp-repeticao';
 import assert from 'node:assert/strict';
 import {once} from 'node:events';
 import express from 'express';
 import {getExpectedTwilioSignature} from 'twilio/lib/webhooks/webhooks';
 import {twilioConfig,twilioReady,enviarTwilio,testarConexaoTwilio,motivoFalhaTwilio,registrarEnviosTwilio,registrarWebhookTwilio,callbackTwilio} from '../server/whatsapp-twilio';
+const falhaBase={provedor:'twilio',status:'falha',erro_codigo:'63016',twilio_id:'MM'+'a'.repeat(32)};
+assert.ok(podeRepetirEnvio(falhaBase));
+for(const status of ['incerto','reservada','aceita','enviada','entregue','lida'])assert.equal(podeRepetirEnvio({...falhaBase,status}),false);
+assert.equal(podeRepetirEnvio({...falhaBase,provedor:'meta'}),false);
+assert.equal(podeRepetirEnvio({...falhaBase,erro_codigo:null}),false);
+assert.equal(podeRepetirEnvio({...falhaBase,erro_codigo:'RESPOSTA_INVALIDA'}),false);
+for(const erro_codigo of ['20003','63007']){assert.ok(podeRepetirEnvio({...falhaBase,erro_codigo,twilio_id:null}));assert.equal(podeRepetirEnvio({...falhaBase,erro_codigo}),false);}
 const c=twilioConfig({TWILIO_ACCOUNT_SID:'AC'+'a'.repeat(32),TWILIO_AUTH_TOKEN:'test-token',TWILIO_WHATSAPP_FROM:'+14155238886',TWILIO_CONTENT_SID:'HX'+'b'.repeat(32),AUTH_ORIGIN:'https://painel.test'});
 let sid='SM'+'c'.repeat(32);const id='aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee';
 assert.ok(twilioReady(c));assert.ok(!twilioReady({...c,authToken:''}));assert.ok(!twilioReady(twilioConfig({AUTH_ORIGIN:'http://unsafe.test'})));assert.ok(!twilioReady({...c,from:'+14155238886'}));

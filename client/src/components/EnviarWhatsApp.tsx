@@ -1,3 +1,4 @@
+import {podeRepetirEnvio} from '@shared/whatsapp-repeticao';
 import {comporAviso,LIMITE_AVISO,type CamposAviso} from "@shared/whatsapp-aviso";
 import { useState } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
@@ -40,9 +41,8 @@ export function EnviarWhatsApp({ pub, anotacao }: { pub: PublicacaoComProcesso; 
   const preparar=useMutation({mutationFn:async()=>(await apiRequest("GET",`/api/publicacoes/${pub.id}/whatsapp/previa`)).json(),onSuccess:(p)=>{setPrevia(p);setTextoPublicacao(p.campos.texto);setAcao(p.campos.acao);setCuradoria(p.campos.curadoria);setConferido(false);enviar.reset();}});
   const digits = telefone.replace(/[\s()+.-]/g, "");
   const texto = previa ? comporAviso({...previa.campos,texto:textoPublicacao,acao,curadoria}).texto : "";
-  const falhaAutenticacao = (v: Envio) => v.provedor === 'twilio' && v.status === 'falha' && v.erro_codigo === '20003' && v.twilio_id === null;
-  const existente = historico.data?.some(v => v.telefone === digits && !falhaAutenticacao(v));
-  const novaTentativa = historico.data?.some(v => v.telefone === digits && falhaAutenticacao(v));
+  const existente = historico.data?.some(v => v.telefone === digits && !podeRepetirEnvio(v));
+  const novaTentativa = historico.data?.some(v => v.telefone === digits && podeRepetirEnvio(v));
   const valido = previa && nome.trim().length >= 2 && /^[1-9]\d{7,14}$/.test(digits) && textoPublicacao.trim() && acao.trim() && curadoria.trim() &&
     textoPublicacao.length<=4000 && acao.length<=350 && curadoria.length<=1000 && texto.length<=LIMITE_AVISO && consentimento && conferido && !existente;
   const motivos = [
@@ -104,14 +104,14 @@ export function EnviarWhatsApp({ pub, anotacao }: { pub: PublicacaoComProcesso; 
           </>}
           <label className="flex gap-2 text-sm items-start"><input type="checkbox" checked={consentimento} onChange={e => setConsentimento(e.target.checked)} className="mt-1" />
             Conferi que este número pertence ao destinatário indicado e que ele autorizou o recebimento dos avisos.</label>
-          {novaTentativa && !existente && <p className="text-sm">A tentativa anterior foi recusada por autenticação (20003). Após corrigir as credenciais, você pode confirmar uma nova tentativa. O histórico anterior será preservado.</p>}
+          {novaTentativa && !existente && <p className="text-sm">A Twilio confirmou uma falha que permite nova tentativa após corrigir a causa (credenciais, remetente ou aprovação do modelo). Confira novamente os dados e confirme abaixo. O histórico anterior será preservado.</p>}
           {!!motivos.length && <div className="text-xs text-muted-foreground" role="status"><p>Para habilitar o envio:</p><ul className="list-disc pl-5">{motivos.map((m,i)=><li key={i}>{m}</li>)}</ul></div>}
           {existente && <p role="status" className="text-sm">Já existe uma tentativa para este número. Confira o resultado abaixo.</p>}
           {enviar.isError && <p role="alert" className="text-sm text-destructive">{enviar.error.message}</p>}
           {enviar.isSuccess && <p role="status" className="text-sm">{labels[enviar.data.status] || "Tentativa registrada"}. Confira o histórico.</p>}
           {enviar.isSuccess&&enviar.data.codigo&&<div role="alert" className="text-sm border rounded p-3 space-y-1"><p>Resposta da Twilio: código {enviar.data.codigo}{enviar.data.statusHttp?` · HTTP ${enviar.data.statusHttp}`:''}.</p>{enviar.data.motivo&&<p>Motivo informado: {enviar.data.motivo}</p>}<p className="text-xs">Copie esta resposta para o diagnóstico. Credenciais e números são ocultados.</p></div>}
           <Button disabled={!valido || !config.data?.configurado || !historico.isSuccess || preparar.isPending || enviar.isPending || enviar.isSuccess} onClick={() => enviar.mutate()}>
-            {enviar.isPending ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Send className="h-4 w-4 mr-2" />} Confirmar envio para {digits || "o destinatário"}
+            {enviar.isPending ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Send className="h-4 w-4 mr-2" />} {novaTentativa&&!existente?"Confirmar nova tentativa para":"Confirmar envio para"} {digits || "o destinatário"}
           </Button>
         </div>
         <div className="border-t pt-3 space-y-2"><p className="text-sm font-medium">Histórico desta publicação</p>
