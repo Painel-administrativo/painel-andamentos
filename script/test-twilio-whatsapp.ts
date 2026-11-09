@@ -2,10 +2,19 @@ import assert from 'node:assert/strict';
 import {once} from 'node:events';
 import express from 'express';
 import {getExpectedTwilioSignature} from 'twilio/lib/webhooks/webhooks';
-import {twilioConfig,twilioReady,enviarTwilio,registrarEnviosTwilio,registrarWebhookTwilio,callbackTwilio} from '../server/whatsapp-twilio';
+import {twilioConfig,twilioReady,enviarTwilio,testarConexaoTwilio,registrarEnviosTwilio,registrarWebhookTwilio,callbackTwilio} from '../server/whatsapp-twilio';
 const c=twilioConfig({TWILIO_ACCOUNT_SID:'AC'+'a'.repeat(32),TWILIO_AUTH_TOKEN:'test-token',TWILIO_WHATSAPP_FROM:'+14155238886',TWILIO_CONTENT_SID:'HX'+'b'.repeat(32),AUTH_ORIGIN:'https://painel.test'});
 const sid='SM'+'c'.repeat(32),id='aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee';
 assert.ok(twilioReady(c));assert.ok(!twilioReady({...c,authToken:''}));assert.ok(!twilioReady(twilioConfig({AUTH_ORIGIN:'http://unsafe.test'})));assert.ok(!twilioReady({...c,from:'+14155238886'}));
+assert.equal(twilioConfig({TWILIO_AUTH_TOKEN:'  token-with-newline\n'}).authToken,'token-with-newline');
+let authChecks=0;
+const check=await testarConexaoTwilio(c,async(url,init)=>{authChecks++;assert.equal(url,`https://api.twilio.com/2010-04-01/Accounts/${c.accountSid}.json`);assert.equal(init?.method,'GET');assert.equal(init?.body,undefined);assert.equal(init?.redirect,'error');return Response.json({sid:c.accountSid,status:'active',auth_token:'NEVER_RETURN',friendly_name:'PRIVATE'});});
+assert.equal(check.autenticado,true);assert.equal(check.contaFinal,c.accountSid.slice(-6));assert.ok(!JSON.stringify(check).includes('NEVER_RETURN'));assert.ok(!JSON.stringify(check).includes('PRIVATE'));assert.ok(!JSON.stringify(check).includes(c.accountSid));
+assert.equal((await testarConexaoTwilio(c,async()=>Response.json({code:20003,message:'PRIVATE'}, {status:401}))).codigo,'20003');
+assert.equal((await testarConexaoTwilio(c,async()=>{throw Error('PRIVATE');})).codigo,'CONEXAO_INCONCLUSIVA');
+assert.equal((await testarConexaoTwilio(c,async()=>Response.json({sid:'AC'+'0'.repeat(32),status:'active'}))).codigo,'RESPOSTA_INVALIDA');
+assert.equal((await testarConexaoTwilio(c,async()=>Response.json({sid:c.accountSid,status:'suspended'}))).statusConta,'suspended');
+assert.equal((await testarConexaoTwilio({...c,authToken:''},async()=>{authChecks++;throw Error();})).codigo,'CONFIGURACAO_INCOMPLETA');assert.equal(authChecks,1);
 let input:any={nome:'Destinatário teste',telefone:'+55 (21) 99999-9999',resumo:'Despacho de teste.',curadoria:'Conferir os autos.',consentimento:true};
 let calls=0;
 const response=()=>Response.json({sid,account_sid:c.accountSid,to:'whatsapp:+5521999999999',from:c.from,status:'queued'},{status:201});
@@ -31,7 +40,7 @@ const app=express();app.use(express.json());app.use(express.urlencoded({extended
 app.use((req,res,next)=>{if(req.get('authorization')!=='test-session'){res.sendStatus(401);return;}next();});
 const pub={id:7,processoNumero:'08019854020248190061',processoApelido:'TAPAJOZ-Flavia - JOSELINA',siglaTribunal:'TJRJ',tipoDocumento:'Outros',dataDisponibilizacao:'2026-11-03',texto:'Comunicação de teste.',anotacao:'Ação: necessária: Nenhuma.\n› Curadoria: Informa distribuição.'};
 let callbackBeforeAck=false;
-registrarEnviosTwilio(app,db,async()=>pub,()=>c,async(...args)=>{if(callbackBeforeAck)assert.equal((await event('delivered')).status,204);return transport(...args);});
+registrarEnviosTwilio(app,db,async()=>pub,()=>c,async(...args)=>{if(args[1]?.method==='GET')return Response.json({sid:c.accountSid,status:'active',auth_token:'SECRET_RETURNED_BY_PROVIDER'});if(callbackBeforeAck)assert.equal((await event('delivered')).status,204);return transport(...args);});
 const server=app.listen(0,'127.0.0.1');await once(server,'listening');const base=`http://127.0.0.1:${(server.address() as any).port}`;
 async function post(body:any=input,auth=true){return fetch(base+'/api/publicacoes/7/whatsapp',{method:'POST',headers:{'Content-Type':'application/json',...(auth?{authorization:'test-session'}:{})},body:JSON.stringify(body)});}
 async function event(status:string,options:{badSignature?:boolean;changes?:Record<string,string>;tamper?:boolean;query?:boolean}={}){
@@ -42,6 +51,10 @@ async function event(status:string,options:{badSignature?:boolean;changes?:Recor
 try{
  assert.equal((await post(input,false)).status,401);assert.equal((await post({...input,consentimento:false})).status,400);
  const config=await(await fetch(base+'/api/whatsapp/config',{headers:{authorization:'test-session'}})).text();assert.ok(config.includes('twilio'));assert.ok(!config.includes(c.authToken));assert.ok(!config.includes(c.accountSid));
+ assert.equal((await fetch(base+'/api/whatsapp/testar-conexao',{method:'POST'})).status,401);
+ const beforeCheck=calls,queriesBeforeCheck=queries.length;
+ const diagnostic=await(await fetch(base+'/api/whatsapp/testar-conexao',{method:'POST',headers:{authorization:'test-session'}})).text();
+ assert.ok(JSON.parse(diagnostic).autenticado);assert.ok(!diagnostic.includes('SECRET_RETURNED_BY_PROVIDER'));assert.ok(!diagnostic.includes(c.authToken));assert.ok(!diagnostic.includes(c.accountSid));assert.equal(calls,beforeCheck);assert.equal(queries.length,queriesBeforeCheck);
  const preview=await(await fetch(base+'/api/publicacoes/7/whatsapp/previa',{headers:{authorization:'test-session'}})).json();
  input={nome:input.nome,telefone:input.telefone,consentimento:true,conferido:true,versaoModelo:'aviso10',geradaEm:preview.geradaEm,contexto:preview.contexto,texto:preview.campos.texto,acao:preview.campos.acao,curadoria:preview.campos.curadoria};
  values=['carimbo','identificacao','numero','tipo','disponibilizacao','publicacao','prazo','texto','acao','curadoria'].map(k=>preview.campos[k]);

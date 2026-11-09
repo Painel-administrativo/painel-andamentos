@@ -39,6 +39,7 @@ async function main() {
   app.get("/api/calendario", (_req, res) => res.json({ ok: true }));
   app.post("/api/publicacoes/1/whatsapp", (_req, res) => res.json({ ok: true }));
   app.get("/api/publicacoes/1/whatsapp/previa", (_req,res)=>res.json({ok:true}));
+  app.post("/api/whatsapp/testar-conexao", (_req,res)=>res.json({ok:true}));
   app.get("/api/whatsapp/config", (_req, res) => res.json({ configurado: false }));
   app.post("/api/relatorios/1/usar-como-base", (_req,res)=>res.json({ok:true}));
   app.get("/api/relatorios/grupos", (_req, res) => res.json([]));
@@ -85,6 +86,8 @@ async function main() {
     await request("/api/calendario/propostas/1/revisar", 401, { method: "POST", headers: { "x-automation-token":config.automationKey!, "Content-Type":"application/json" }, body:"{}" });
     await request("/api/publicacoes/1/whatsapp/previa",401);
     await request("/api/publicacoes/1/whatsapp/previa",401,{headers:{"x-automation-token":config.automationKey!}});
+    await request('/api/whatsapp/testar-conexao',401,{method:'POST',headers:{Origin:config.origin!,'Content-Type':'application/json'},body:'{}'});
+    await request('/api/whatsapp/testar-conexao',401,{method:'POST',headers:{'Content-Type':'application/json','x-automation-token':config.automationKey!},body:'{}'});
     await request("/api/whatsapp/config", 401);
     await request("/api/publicacoes/1/whatsapp", 401, { method: "POST", headers: { Origin: config.origin!, "Content-Type": "application/json" }, body: "{}" });
     await request("/api/publicacoes/1/whatsapp", 401, { method: "POST", headers: { "x-automation-token": config.automationKey!, "Content-Type": "application/json" }, body: "{}" });
@@ -120,6 +123,8 @@ async function main() {
     await request("/api/relatorios/grupos", 403, {method:"POST",headers:{cookie:session,Origin:"https://evil.example","Content-Type":"application/json"},body:"{}"});
     await request("/api/publicacoes/1/whatsapp", 403, { method: "POST", headers: { cookie: session, Origin: "https://evil.example", "Content-Type": "application/json" }, body: "{}" });
     await request("/api/publicacoes/1/whatsapp", 200, { method: "POST", headers: { cookie: session, Origin: config.origin!, "Content-Type": "application/json" }, body: "{}" });
+    await request('/api/whatsapp/testar-conexao',403,{method:'POST',headers:{cookie:session,Origin:'https://evil.example','Content-Type':'application/json'},body:'{}'});
+    await request('/api/whatsapp/testar-conexao',200,{method:'POST',headers:{cookie:session,Origin:config.origin!,'Content-Type':'application/json'},body:'{}'});
     await request("/api/processos", 200, { headers: { cookie: session } });
     await request("/api/processos/atualizar", 403, { method: "POST", headers: { cookie: session, Origin: "https://evil.example", "Content-Type": "application/json" }, body: "{}" });
     await request("/api/processos/atualizar", 200, { method: "POST", headers: { cookie: session, Origin: config.origin!, "Content-Type": "application/json" }, body: "{}" });
