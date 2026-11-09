@@ -4,7 +4,7 @@ import express from 'express';
 import {getExpectedTwilioSignature} from 'twilio/lib/webhooks/webhooks';
 import {twilioConfig,twilioReady,enviarTwilio,testarConexaoTwilio,motivoFalhaTwilio,registrarEnviosTwilio,registrarWebhookTwilio,callbackTwilio} from '../server/whatsapp-twilio';
 const c=twilioConfig({TWILIO_ACCOUNT_SID:'AC'+'a'.repeat(32),TWILIO_AUTH_TOKEN:'test-token',TWILIO_WHATSAPP_FROM:'+14155238886',TWILIO_CONTENT_SID:'HX'+'b'.repeat(32),AUTH_ORIGIN:'https://painel.test'});
-const sid='SM'+'c'.repeat(32),id='aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee';
+let sid='SM'+'c'.repeat(32);const id='aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee';
 assert.ok(twilioReady(c));assert.ok(!twilioReady({...c,authToken:''}));assert.ok(!twilioReady(twilioConfig({AUTH_ORIGIN:'http://unsafe.test'})));assert.ok(!twilioReady({...c,from:'+14155238886'}));
 assert.equal(twilioConfig({TWILIO_AUTH_TOKEN:'  token-with-newline\n'}).authToken,'token-with-newline');
 let authChecks=0;
@@ -29,6 +29,8 @@ const transport:typeof fetch=async(url,init)=>{
 };
 let values=['03/11 13:02','TAPAJOZ-Flavia - JOSELINA','0801985-40.2024.8.19.0061','Outros','03/11/2026','04/11/2026','05/11/2026','Comunicação de teste.','Nenhuma.','Informa distribuição.'];
 assert.equal((await enviarTwilio(c,id,'5521999999999',values,transport)).status,'aceita');
+sid='MM'+'d'.repeat(32);assert.equal((await enviarTwilio(c,id,'5521999999999',values,transport)).status,'aceita');
+assert.equal((await enviarTwilio(c,id,'5521999999999',values,async()=>Response.json({sid:'XX'+'d'.repeat(32),account_sid:c.accountSid,to:'whatsapp:+5521999999999',from:c.from}))).codigo,'RESPOSTA_INVALIDA');
 assert.equal((await enviarTwilio(c,id,'5521999999999',values,async()=>{throw Error('timeout');})).status,'incerto');
 assert.equal((await enviarTwilio(c,id,'5521999999999',values,async()=>Response.json({code:63016},{status:400}))).codigo,'63016');
 assert.equal((await enviarTwilio(c,id,'5521999999999',values,async()=>Response.json({},{status:500}))).status,'incerto');
@@ -66,7 +68,7 @@ try{
  const n=queries.length;assert.equal((await event('delivered',{badSignature:true})).status,401);assert.equal((await event('delivered',{tamper:true})).status,401);assert.equal((await event('delivered',{query:true})).status,401);assert.equal((await event('delivered',{changes:{AccountSid:'AC'+'0'.repeat(32)}})).status,400);assert.equal(queries.length,n);
  assert.equal((await event('sent')).status,204);assert.equal(rank,2);assert.equal(delivered,false);
  assert.equal((await event('delivered')).status,204);assert.equal(rank,4);assert.ok(delivered);
- await event('sent');await event('undelivered');assert.equal(rank,4);await event('read');assert.equal(rank,5);await event('delivered');assert.equal(rank,5);
+ await event('sent');await event('undelivered');assert.equal(rank,4);await event('read');assert.equal(rank,5);sid='SM'+'c'.repeat(32);assert.equal((await event('read')).status,204);await event('delivered');assert.equal(rank,5);
  // A callback can arrive before the create response, and acknowledgement must not downgrade it.
  reserved=false;rank=0;delivered=false;callbackBeforeAck=true;assert.equal((await post()).status,202);assert.equal(rank,4);assert.ok(delivered);callbackBeforeAck=false;
  // A storage failure after sending leaves the reservation blocked against a second send.
