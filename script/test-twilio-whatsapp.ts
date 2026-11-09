@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import {once} from 'node:events';
 import express from 'express';
 import {getExpectedTwilioSignature} from 'twilio/lib/webhooks/webhooks';
-import {twilioConfig,twilioReady,enviarTwilio,testarConexaoTwilio,registrarEnviosTwilio,registrarWebhookTwilio,callbackTwilio} from '../server/whatsapp-twilio';
+import {twilioConfig,twilioReady,enviarTwilio,testarConexaoTwilio,motivoFalhaTwilio,registrarEnviosTwilio,registrarWebhookTwilio,callbackTwilio} from '../server/whatsapp-twilio';
 const c=twilioConfig({TWILIO_ACCOUNT_SID:'AC'+'a'.repeat(32),TWILIO_AUTH_TOKEN:'test-token',TWILIO_WHATSAPP_FROM:'+14155238886',TWILIO_CONTENT_SID:'HX'+'b'.repeat(32),AUTH_ORIGIN:'https://painel.test'});
 const sid='SM'+'c'.repeat(32),id='aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee';
 assert.ok(twilioReady(c));assert.ok(!twilioReady({...c,authToken:''}));assert.ok(!twilioReady(twilioConfig({AUTH_ORIGIN:'http://unsafe.test'})));assert.ok(!twilioReady({...c,from:'+14155238886'}));
@@ -15,6 +15,9 @@ assert.equal((await testarConexaoTwilio(c,async()=>{throw Error('PRIVATE');})).c
 assert.equal((await testarConexaoTwilio(c,async()=>Response.json({sid:'AC'+'0'.repeat(32),status:'active'}))).codigo,'RESPOSTA_INVALIDA');
 assert.equal((await testarConexaoTwilio(c,async()=>Response.json({sid:c.accountSid,status:'suspended'}))).statusConta,'suspended');
 assert.equal((await testarConexaoTwilio({...c,authToken:''},async()=>{authChecks++;throw Error();})).codigo,'CONFIGURACAO_INCOMPLETA');assert.equal(authChecks,1);
+const providerFailure=await enviarTwilio(c,id,'5521999999999',[],async()=>Response.json({code:20003,message:`Permission Denied for ${c.accountSid} token ${c.authToken} destination +5521999999999`},{status:401}));
+assert.equal(providerFailure.codigo,'20003');assert.equal('statusHttp' in providerFailure&&providerFailure.statusHttp,401);assert.ok('motivo' in providerFailure&&providerFailure.motivo?.includes('Permission Denied'));assert.ok(!JSON.stringify(providerFailure).includes(c.authToken));assert.ok(!JSON.stringify(providerFailure).includes(c.accountSid));assert.ok(!JSON.stringify(providerFailure).includes('5521999999999'));
+assert.equal(motivoFalhaTwilio(null,c,'5521999999999'),null);assert.ok(motivoFalhaTwilio('x'.repeat(1000),c,'5521999999999')!.length<=600);
 let input:any={nome:'Destinatário teste',telefone:'+55 (21) 99999-9999',resumo:'Despacho de teste.',curadoria:'Conferir os autos.',consentimento:true};
 let calls=0;
 const response=()=>Response.json({sid,account_sid:c.accountSid,to:'whatsapp:+5521999999999',from:c.from,status:'queued'},{status:201});

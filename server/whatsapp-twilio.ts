@@ -28,12 +28,18 @@ export async function testarConexaoTwilio(c:TwilioConfig,transport:typeof fetch=
  }catch{return{autenticado:false,contaFinal,codigo:'CONEXAO_INCONCLUSIVA',statusConta:null};}
 }
 export const callbackTwilio=(c:TwilioConfig,id:string)=>`${c.origin}/api/whatsapp/twilio/status/${id}`;
+export function motivoFalhaTwilio(message:unknown,c:TwilioConfig,telefone:string){
+ if(typeof message!=='string')return null;
+ let texto=message;
+ for(const segredo of [c.authToken,c.accountSid,c.contentSid,c.from,telefone,Buffer.from(`${c.accountSid}:${c.authToken}`).toString('base64')])if(segredo.length>=6)texto=texto.split(segredo).join('[oculto]');
+ return texto.replace(/(?:AC|HX|SM)[a-f0-9]{32}/gi,'[SID oculto]').replace(/\+?\d{8,15}/g,'[número oculto]').replace(/\s+/g,' ').trim().slice(0,600)||null;
+}
 export async function enviarTwilio(c:TwilioConfig,id:string,telefone:string,values:string[],transport:typeof fetch=fetch){
  try{
   const body=new URLSearchParams({To:`whatsapp:+${telefone}`,From:c.from,ContentSid:c.contentSid,ContentVariables:JSON.stringify(Object.fromEntries(values.map((v,i)=>[String(i+1),v]))),StatusCallback:callbackTwilio(c,id)});
   const r=await transport(`https://api.twilio.com/2010-04-01/Accounts/${c.accountSid}/Messages.json`,{method:'POST',redirect:'error',signal:AbortSignal.timeout(20000),headers:{Authorization:`Basic ${Buffer.from(`${c.accountSid}:${c.authToken}`).toString('base64')}`,'Content-Type':'application/x-www-form-urlencoded',Accept:'application/json'},body:body.toString()});
   const data=await r.json().catch(()=>null);
-  if(!r.ok)return{status:r.status>=500||r.status===408?'incerto':'falha',twilioId:null,codigo:typeof data?.code==='number'?String(data.code):`HTTP_${r.status}`};
+  if(!r.ok)return{status:r.status>=500||r.status===408?'incerto':'falha',twilioId:null,codigo:typeof data?.code==='number'?String(data.code):`HTTP_${r.status}`,motivo:motivoFalhaTwilio(data?.message,c,telefone),statusHttp:r.status};
   if(typeof data?.sid!=='string'||!/^SM[a-fA-F0-9]{32}$/.test(data.sid)||data.account_sid!==c.accountSid||data.to!==`whatsapp:+${telefone}`||data.from!==c.from)return{status:'incerto',twilioId:null,codigo:'RESPOSTA_INVALIDA'};
   return{status:'aceita',twilioId:data.sid,codigo:null};
  }catch{return{status:'incerto',twilioId:null,codigo:'CONEXAO_INCONCLUSIVA'};}
@@ -91,7 +97,7 @@ export function registrarEnviosTwilio(app:Express,db:Db,getPublicacao:(id:number
    row=r.rows[0];if(!row){res.status(409).json({error:'Já existe uma tentativa para esta publicação e número. Confira o histórico antes de reenviar.'});return;}
    const result=await enviarTwilio(c,row.id,input.data.telefone,values,transport);
    await db.query(`UPDATE public.painel_whatsapp_envios SET status=$2,twilio_id=COALESCE(twilio_id,$3),erro_codigo=$4,status_ordem=1,atualizado_em=now() WHERE id=$1 AND provedor='twilio' AND status_ordem=0`,[row.id,result.status,result.twilioId,result.codigo]);
-   res.status(202).json({id:row.id,status:result.status,provedor:'twilio'});
+   res.status(202).json({id:row.id,status:result.status,provedor:'twilio',codigo:result.codigo,...('motivo' in result?{motivo:result.motivo,statusHttp:result.statusHttp}:{})});
   }catch(e){res.status(503).json({error:row?'Resultado inconclusivo. Consulte o histórico; não repita o envio.':e instanceof Error&&e.message.startsWith('O aviso excede')?e.message:'Não foi possível preparar o envio.'});}
  });
 }
