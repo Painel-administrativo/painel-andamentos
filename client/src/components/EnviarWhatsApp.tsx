@@ -9,6 +9,13 @@ import { Send, Loader2 } from "lucide-react";
 import type { PublicacaoComProcesso } from "@shared/schema";
 
 type Envio = { provedor?: "meta" | "twilio"; id: string; nome: string; telefone: string; status: string; erro_codigo: string | null; criado_em: string };
+const configuracaoPendente: Record<string, string> = {
+  'Conta Twilio': 'TWILIO_ACCOUNT_SID (SID da conta, iniciado por AC)',
+  'Credencial da conta': 'TWILIO_AUTH_TOKEN (token da mesma conta)',
+  'Remetente WhatsApp': 'TWILIO_WHATSAPP_FROM (número com +, país e DDD)',
+  'Modelo de mensagem': 'TWILIO_CONTENT_SID (modelo iniciado por HX)',
+  'Endereço público do aplicativo': 'TWILIO_WEBHOOK_ORIGIN ou AUTH_ORIGIN (URL HTTPS do aplicativo)',
+};
 const labels: Record<string, string> = { reservada: "Em processamento — não repita", aceita: "Aceita pelo provedor; aguardando entrega",
   enviada: "Enviada; aguardando entrega", entregue: "Entregue", lida: "Lida", falha: "Falha no envio", incerto: "Resultado inconclusivo — não repita" };
 const linha = (v: string) => v.replace(/\s+/g, " ");
@@ -46,8 +53,14 @@ export function EnviarWhatsApp({ pub, anotacao }: { pub: PublicacaoComProcesso; 
       <DialogContent className="max-w-xl max-h-[90vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
         <DialogHeader><DialogTitle>Enviar aviso pelo WhatsApp · Twilio</DialogTitle></DialogHeader>
         <p className="text-sm text-muted-foreground break-words">{pub.processoApelido} · {pub.processoNumero}</p>
-        {config.isLoading ? <p>Verificando integração…</p> : config.isError ? <p role="alert">Não foi possível verificar a integração.</p> : !config.data?.configurado &&
-          <p className="text-sm text-amber-700" role="status">A integração Twilio ainda precisa ser configurada no servidor. Você já pode preparar e revisar o aviso.</p>}
+        <div className="space-y-2">
+          {config.isLoading ? <p>Verificando integração…</p> : config.isError ? <p role="alert">Não foi possível verificar a integração. Tente verificar novamente.</p> : config.data?.configurado ? <p className="text-sm" role="status">Configuração Twilio reconhecida pelo aplicativo. As credenciais serão validadas pelo provedor ao enviar.</p> : <div className="text-sm text-amber-700 space-y-2" role="status">
+            <p>O servidor não reconheceu todos os itens necessários para o envio pela Twilio.</p>
+            {!!config.data?.pendencias?.length && <ul className="list-disc pl-5">{config.data.pendencias.map(p=><li key={p}>{configuracaoPendente[p] || p}</li>)}</ul>}
+            <p>Se esses itens já foram salvos na Vercel, confira se estão no ambiente Production e faça um novo deploy. Depois, verifique novamente aqui. Você pode continuar preparando e revisando o aviso.</p>
+          </div>}
+          <Button variant="outline" size="sm" disabled={config.isFetching} onClick={()=>void config.refetch()}>{config.isFetching?'Verificando…':'Verificar configuração novamente'}</Button>
+        </div>
         <div className="space-y-3">
           <label className="block text-sm">Nome do destinatário<Input value={nome} maxLength={100} onChange={e => {setNome(e.target.value);setConsentimento(false);}} placeholder="Advogado ou assinante" /></label>
           <label className="block text-sm">WhatsApp com país e DDD<Input type="tel" value={telefone} onChange={e => {setTelefone(e.target.value);setConsentimento(false);}} placeholder="55 21 99999-9999" /></label>
