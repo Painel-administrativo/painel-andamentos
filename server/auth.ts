@@ -29,10 +29,17 @@ const oauthSchema = z.object({
 });
 const SESSION = "__Host-painel-session";
 const OAUTH = "__Host-painel-oauth";
+export const EXTRA_ADMIN_EMAILS = ["arilsonflorencio1@gmail.com"];
+export function allowedEmail(email: string | undefined | null, config: HostedConfig) {
+  const value = (email || "").toLowerCase();
+  return Boolean(value) && (value === config.adminEmail.toLowerCase() || EXTRA_ADMIN_EMAILS.includes(value));
+}
 export function allowedVercelUser(user: User | null, config: HostedConfig) {
-  return Boolean(user?.id && user.email_confirmed_at &&
-    user.email?.toLowerCase() === config.adminEmail.toLowerCase() &&
-    (!config.adminId || user.id === config.adminId));
+  if (!user?.id || !user.email_confirmed_at) return false;
+  const email = user.email?.toLowerCase() || "";
+  if (EXTRA_ADMIN_EMAILS.includes(email)) return true;
+  return email === config.adminEmail.toLowerCase() &&
+    (!config.adminId || user.id === config.adminId);
 }
 
 // Encrypt and authenticate all cookie content. Domain is intentionally absent.
