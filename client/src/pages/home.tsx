@@ -234,9 +234,12 @@ export default function Home() {
     setOrdemCongelada(null);
   }
 
+  const [ordenacao, setOrdenacao] = useState<"andamentos" | "alfabetica">("andamentos");
+
   // Enriquecimento + ordenação + filtros
   const enriquecidos = useMemo(() => {
     const agora = Date.now();
+    const alfabeto = new Intl.Collator("pt-BR", { sensitivity: "base", numeric: true });
     return processos
       .map((p) => {
         const um = ultimaMovimentacao(p.dados);
@@ -267,13 +270,19 @@ export default function Home() {
           const ob = ordemCongelada.get(b.id) ?? Number.MAX_SAFE_INTEGER;
           if (oa !== ob) return oa - ob;
         }
+        if (ordenacao === "alfabetica") {
+          const nomeA = a.apelido?.trim() || "";
+          const nomeB = b.apelido?.trim() || "";
+          if (!!nomeA !== !!nomeB) return nomeA ? -1 : 1;
+          return alfabeto.compare(nomeA, nomeB) || alfabeto.compare(a.numero, b.numero);
+        }
         // Ordem natural: não lidos primeiro, depois por data desc
         if (a._naoLido !== b._naoLido) return a._naoLido ? -1 : 1;
         const ta = a._ultimaData ? new Date(a._ultimaData).getTime() : 0;
         const tb = b._ultimaData ? new Date(b._ultimaData).getTime() : 0;
         return tb - ta;
       });
-  }, [processos, ordemCongelada]);
+  }, [processos, ordemCongelada, ordenacao]);
 
   // Total de não lidos (pra chip no filtro)
   const totalNaoLidos = useMemo(
@@ -554,6 +563,16 @@ export default function Home() {
               </div>
             </div>
 
+            <label className="mb-3 flex items-center gap-2 text-sm">
+              Ordenar por
+              <select className="rounded-md border bg-background px-2 py-1" value={ordenacao} onChange={e => {
+                setOrdenacao(e.target.value === "alfabetica" ? "alfabetica" : "andamentos");
+                setOrdemCongelada(null);
+              }}>
+                <option value="andamentos">Andamentos (não lidos primeiro)</option>
+                <option value="alfabetica">Ordem alfabética (A–Z)</option>
+              </select>
+            </label>
             {/* Status da última atualização + progresso */}
             <div className="flex items-center justify-between mb-3 text-xs text-muted-foreground min-h-[20px]">
               <span className="flex items-center gap-2 flex-wrap" data-testid="text-contagem">
