@@ -205,7 +205,7 @@ export function createProductionAuth(
     } catch { res.status(503).json({ error: "Validação indisponível. Acesso bloqueado." }); return; }
     const input = loginInput.safeParse(req.body);
     if (!input.success) { res.status(400).json({ error: "Confira e-mail e senha." }); return; }
-    if (input.data.email.toLowerCase() !== config.adminEmail.toLowerCase()) {
+    if (!allowedEmail(input.data.email, config)) {
       res.status(403).json({ error: "Credenciais inválidas ou conta sem autorização." }); return;
     }
     try {
