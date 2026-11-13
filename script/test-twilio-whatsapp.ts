@@ -1,4 +1,5 @@
 import {podeRepetirEnvio} from '../shared/whatsapp-repeticao';
+import {comporAviso} from '../shared/whatsapp-aviso';
 import assert from 'node:assert/strict';
 import {once} from 'node:events';
 import express from 'express';
@@ -70,9 +71,23 @@ try{
  assert.ok(JSON.parse(diagnostic).autenticado);assert.ok(!diagnostic.includes('SECRET_RETURNED_BY_PROVIDER'));assert.ok(!diagnostic.includes(c.authToken));assert.ok(!diagnostic.includes(c.accountSid));assert.equal(calls,beforeCheck);assert.equal(queries.length,queriesBeforeCheck);
  const preview=await(await fetch(base+'/api/publicacoes/7/whatsapp/previa',{headers:{authorization:'test-session'}})).json();
  input={nome:input.nome,telefone:input.telefone,consentimento:true,conferido:true,versaoModelo:'aviso10',geradaEm:preview.geradaEm,contexto:preview.contexto,texto:preview.campos.texto,acao:preview.campos.acao,curadoria:preview.campos.curadoria};
- values=['carimbo','identificacao','numero','tipo','disponibilizacao','publicacao','prazo','texto','acao','curadoria'].map(k=>preview.campos[k]);
+ assert.equal(preview.limite, 1600);
+ const tamanhoSemCuradoria = comporAviso({ ...preview.campos, curadoria: '' }).texto.length;
+ input.curadoria = 'ç'.repeat(preview.limite - tamanhoSemCuradoria);
+ assert.ok(input.curadoria.length > 1000);
+ const avisoNoLimite = comporAviso({ ...preview.campos, curadoria: input.curadoria });
+ assert.equal(avisoNoLimite.texto.length, 1600);
+ values = avisoNoLimite.values;
+
+ const chamadasAntesDoExcesso = calls;
+ const acimaDoLimite = await post({ ...input, curadoria: input.curadoria + 'ç' });
+ assert.equal(acimaDoLimite.status, 409);
+ assert.match((await acimaDoLimite.json()).error, /excede 1600 caracteres/);
+ assert.equal(calls, chamadasAntesDoExcesso);
+ assert.equal(reserved, false);
  const checkedCalls=calls;pub.anotacao+=' Fonte alterada.';assert.equal((await post()).status,409);assert.equal(calls,checkedCalls);pub.anotacao=pub.anotacao.replace(' Fonte alterada.','');
  const before=calls;const results=await Promise.all([post(),post()]);assert.deepEqual(results.map(r=>r.status).sort(),[202,409]);assert.equal(calls,before+1);assert.equal(rank,1);assert.equal(delivered,false);
+ assert.equal(queries.find(({ sql }) => sql.startsWith('INSERT'))?.params[3], avisoNoLimite.texto);
  const n=queries.length;assert.equal((await event('delivered',{badSignature:true})).status,401);assert.equal((await event('delivered',{tamper:true})).status,401);assert.equal((await event('delivered',{query:true})).status,401);assert.equal((await event('delivered',{changes:{AccountSid:'AC'+'0'.repeat(32)}})).status,400);assert.equal(queries.length,n);
  assert.equal((await event('sent')).status,204);assert.equal(rank,2);assert.equal(delivered,false);
  assert.equal((await event('delivered')).status,204);assert.equal(rank,4);assert.ok(delivered);

@@ -9,7 +9,7 @@ import {dataPrazoManual} from '../shared/prazo-manual';
 import {feriadosParaTribunal} from '../client/src/lib/calendario-forense';
 const umaLinha=(max:number)=>z.string().trim().min(1).max(max).refine(s=>!/[\r\n\t]/.test(s),'Use uma única linha.');
 export const envioAvisoSchema=envioSchema.pick({nome:true,telefone:true,consentimento:true}).extend({
- texto:umaLinha(4000),acao:umaLinha(350),curadoria:umaLinha(1000),conferido:z.literal(true),versaoModelo:z.literal('aviso10'),
+ texto:umaLinha(4000),acao:umaLinha(350),curadoria:umaLinha(LIMITE_AVISO),conferido:z.literal(true),versaoModelo:z.literal('aviso10'),
  geradaEm:z.string().datetime(),contexto:z.string().regex(/^[a-f0-9]{64}$/),
 }).strict();
 type Db={query:(sql:string,values?:any[])=>Promise<any>};

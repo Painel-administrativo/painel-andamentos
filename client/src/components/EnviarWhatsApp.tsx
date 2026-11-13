@@ -51,10 +51,12 @@ export function EnviarWhatsApp({ pub, anotacao }: { pub: PublicacaoComProcesso; 
   const preparar=useMutation({mutationFn:async()=>(await apiRequest("GET",`/api/publicacoes/${pub.id}/whatsapp/previa`)).json(),onSuccess:(p)=>{setPrevia(p);setTextoPublicacao(p.campos.texto);setAcao(p.campos.acao);setCuradoria(p.campos.curadoria);setConferido(false);enviar.reset();}});
   const digits = telefone.replace(/[\s()+.-]/g, "");
   const texto = previa ? comporAviso({...previa.campos,texto:textoPublicacao,acao,curadoria}).texto : "";
+  const excedeLimites = textoPublicacao.length > 4000 || acao.length > 350 ||
+    curadoria.length > LIMITE_AVISO || texto.length > LIMITE_AVISO;
   const existente = historico.data?.some(v => v.telefone === digits && !podeRepetirEnvio(v));
   const novaTentativa = historico.data?.some(v => v.telefone === digits && podeRepetirEnvio(v));
   const valido = previa && nome.trim().length >= 2 && /^[1-9]\d{7,14}$/.test(digits) && textoPublicacao.trim() && acao.trim() && curadoria.trim() &&
-    textoPublicacao.length<=4000 && acao.length<=350 && curadoria.length<=1000 && texto.length<=LIMITE_AVISO && consentimento && conferido && !existente;
+    !excedeLimites && consentimento && conferido && !existente;
   const motivos = [
     !config.data?.configurado && 'Verifique a configuração Twilio acima.',
     !historico.isSuccess && 'Aguarde o histórico de envios carregar.',
@@ -62,7 +64,7 @@ export function EnviarWhatsApp({ pub, anotacao }: { pub: PublicacaoComProcesso; 
     nome.trim().length < 2 && 'Preencha o nome do destinatário.',
     !/^[1-9]\d{7,14}$/.test(digits) && 'Informe o número com país e DDD.',
     previa && (!textoPublicacao.trim() || !acao.trim() || !curadoria.trim()) && 'Preencha texto, ação e curadoria.',
-    (textoPublicacao.length>4000 || acao.length>350 || curadoria.length>1000 || texto.length>LIMITE_AVISO) && 'Reduza os campos aos limites indicados.',
+    excedeLimites && 'Reduza os campos aos limites indicados.',
     !conferido && 'Marque a conferência da mensagem.',
     !consentimento && 'Marque a confirmação do destinatário e da autorização.',
     existente && 'Já existe uma tentativa que impede novo envio para este número.',
@@ -107,7 +109,7 @@ export function EnviarWhatsApp({ pub, anotacao }: { pub: PublicacaoComProcesso; 
           </label>
           <label className="block text-sm">Ação necessária<Input value={acao} maxLength={350} onChange={e=>{setAcao(linha(e.target.value));setConferido(false);}} /></label>
           <label className="block text-sm">Curadoria para acompanhamento
-            <textarea className="w-full rounded-md border bg-background p-2 mt-1" rows={3} value={curadoria} maxLength={1000} onChange={e=>{setCuradoria(linha(e.target.value));setConferido(false);}} />
+            <textarea className="w-full rounded-md border bg-background p-2 mt-1" rows={3} value={curadoria} maxLength={LIMITE_AVISO} onChange={e=>{setCuradoria(linha(e.target.value));setConferido(false);}} />
           </label>
           <div className="rounded-md border bg-muted/30 p-3"><p className="text-xs font-medium mb-2">Prévia do modelo · {texto.length}/{LIMITE_AVISO} caracteres</p><p className="whitespace-pre-wrap break-words text-sm">{texto}</p></div>
           {texto.length>LIMITE_AVISO&&<p role="alert" className="text-sm text-destructive">O aviso excede {LIMITE_AVISO} caracteres. Reduza o texto ou a curadoria; o sistema não corta a mensagem automaticamente.</p>}
