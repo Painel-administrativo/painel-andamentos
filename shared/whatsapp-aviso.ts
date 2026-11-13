@@ -1,4 +1,4 @@
-export const LIMITE_AVISO=1024;
+export const LIMITE_AVISO = 1600;
 export const linhaAviso=(v:string)=>v.replace(/\s+/g,' ').trim();
 export type CamposAviso={carimbo:string;identificacao:string;numero:string;tipo:string;disponibilizacao:string;publicacao:string;prazo:string;texto:string;acao:string;curadoria:string};
 export function comporAviso(c:CamposAviso){

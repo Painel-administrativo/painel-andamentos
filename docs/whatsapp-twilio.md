@@ -55,7 +55,7 @@ Informar exemplos e submeter o modelo à aprovação do WhatsApp pela Twilio. O 
 
 A prévia busca os dados salvos no servidor e calcula as datas com feriados, suspensão confirmada para o tribunal e regras aprovadas. Mantém o ajuste manual do vencimento. O texto, a ação e a curadoria podem ser editados antes da confirmação. As variáveis são de uma linha; quebras e espaços do texto de origem são normalizados para a apresentação no modelo. Sem ação/curadoria cadastrada, o painel informa “Não definida.”/“Não informada.”, sem inventar providências.
 
-O limite conservador de 1024 caracteres continua sendo aplicado à mensagem renderizada inteira. Se excedido, o revisor deve reduzir o texto antes de enviar; não há truncamento automático. O formato estático da prévia e as dez variáveis enviadas usam o mesmo compositor compartilhado entre cliente e servidor.
+O limite de 1.600 caracteres vale para a mensagem completa, incluindo o texto fixo do modelo e os valores das dez variáveis. A prévia mostra a contagem, e o servidor valida o mesmo limite antes do envio. Se exceder o limite, reduza o conteúdo na prévia. [Limite do modelo de texto na Twilio](https://www.twilio.com/docs/content/twilio-text)
 
 A prévia expira em 30 minutos. Antes da reserva e do envio, o servidor reconstrói o conteúdo de origem e recusa uma prévia se o processo, publicação, datas, prazo ou curadoria tiverem mudado. A revisão do texto completo e o consentimento do destinatário são confirmações separadas. A data/hora apresentada é a da prévia conferida.
 

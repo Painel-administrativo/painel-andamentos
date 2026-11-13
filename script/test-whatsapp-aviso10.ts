@@ -14,7 +14,7 @@ const v=envioAvisoSchema.parse({nome:'Revisor teste',telefone:'+55 (21) 99999-99
 assert.equal(confirmarAviso(p,v,Date.parse(now)).texto,a.texto);
 assert.throws(()=>confirmarAviso(p,{...v,contexto:'0'.repeat(64)},Date.parse(now)),/mudou/);
 assert.throws(()=>confirmarAviso(p,v,Date.parse(now)+31*60000),/expirou/);
-assert.throws(()=>confirmarAviso(p,{...v,texto:'x'.repeat(1500)},Date.parse(now)),/excede/);
+assert.throws(() => confirmarAviso(p, { ...v, texto: 'x'.repeat(1600) }, Date.parse(now)), /excede 1600 caracteres/);
 assert.equal(envioAvisoSchema.safeParse({...v,conferido:false}).success,false);
 assert.equal(envioAvisoSchema.safeParse({...v,texto:'texto\noutra linha'}).success,false);
 assert.equal(envioAvisoSchema.safeParse({nome:'teste',telefone:'5521999999999',consentimento:true,resumo:'antigo',curadoria:'antiga'}).success,false);
