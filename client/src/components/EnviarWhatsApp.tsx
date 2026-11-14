@@ -46,7 +46,8 @@ export function EnviarWhatsApp({ pub, anotacao }: { pub: PublicacaoComProcesso; 
   const historico = useQuery<Envio[]>({ queryKey: key, enabled: aberto, staleTime: 0, refetchInterval: aberto ? 5000 : false });
   const enviar = useMutation({
     mutationFn: async () => (await apiRequest("POST", key[0], { nome, telefone, texto:textoPublicacao, acao, curadoria, consentimento, conferido, contexto:previa?.contexto, geradaEm:previa?.geradaEm, versaoModelo:"aviso10" })).json(),
-    onSettled: () => { queryClient.invalidateQueries({ queryKey: key }); },
+    onSuccess: () => { setConsentimento(false); setConferido(false); },
+    onSettled: () => queryClient.invalidateQueries({ queryKey: key }),
   });
   const preparar=useMutation({mutationFn:async()=>(await apiRequest("GET",`/api/publicacoes/${pub.id}/whatsapp/previa`)).json(),onSuccess:(p)=>{setPrevia(p);setTextoPublicacao(p.campos.texto);setAcao(p.campos.acao);setCuradoria(p.campos.curadoria);setConferido(false);enviar.reset();}});
   const digits = telefone.replace(/[\s()+.-]/g, "");
@@ -68,7 +69,6 @@ export function EnviarWhatsApp({ pub, anotacao }: { pub: PublicacaoComProcesso; 
     !conferido && 'Marque a conferência da mensagem.',
     !consentimento && 'Marque a confirmação do destinatário e da autorização.',
     existente && 'Já existe uma tentativa que impede novo envio para este número.',
-    enviar.isSuccess && 'A tentativa foi registrada. Confira o resultado no histórico.',
   ].filter(Boolean);
   function abrir() {
     setPrevia(null);setConferido(false);setConsentimento(false);enviar.reset();testarConexao.reset();setContatoId('');setBuscaContato('');setContatoInicializado(false);setNome('');setTelefone('');setAberto(true);preparar.mutate();
@@ -123,7 +123,7 @@ export function EnviarWhatsApp({ pub, anotacao }: { pub: PublicacaoComProcesso; 
           {enviar.isError && <p role="alert" className="text-sm text-destructive">{enviar.error.message}</p>}
           {enviar.isSuccess && <p role="status" className="text-sm">{labels[enviar.data.status] || "Tentativa registrada"}. Confira o histórico.</p>}
           {enviar.isSuccess&&enviar.data.codigo&&<div role="alert" className="text-sm border rounded p-3 space-y-1"><p>Resposta da Twilio: código {enviar.data.codigo}{enviar.data.statusHttp?` · HTTP ${enviar.data.statusHttp}`:''}.</p>{enviar.data.motivo&&<p>Motivo informado: {enviar.data.motivo}</p>}<p className="text-xs">Copie esta resposta para o diagnóstico. Credenciais e números são ocultados.</p></div>}
-          <Button disabled={!valido || !config.data?.configurado || !historico.isSuccess || preparar.isPending || enviar.isPending || enviar.isSuccess} onClick={() => enviar.mutate()}>
+          <Button disabled={!valido || !config.data?.configurado || !historico.isSuccess || preparar.isPending || enviar.isPending} onClick={() => enviar.mutate()}>
             {enviar.isPending ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Send className="h-4 w-4 mr-2" />} {novaTentativa&&!existente?"Confirmar nova tentativa para":"Confirmar envio para"} {digits || "o destinatário"}
           </Button>
         </div>
