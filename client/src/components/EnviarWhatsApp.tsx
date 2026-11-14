@@ -11,7 +11,7 @@ import { Input } from "@/components/ui/input";
 import { Send, Loader2 } from "lucide-react";
 import type { PublicacaoComProcesso } from "@shared/schema";
 
-type Envio = { twilio_id?: string | null; provedor?: "meta" | "twilio"; id: string; nome: string; telefone: string; status: string; erro_codigo: string | null; criado_em: string };
+type Envio = { twilio_id?: string | null; provedor?: "meta" | "twilio"; id: string; nome: string; telefone: string; status: string; erro_codigo: string | null; criado_em: string; atualizado_em?: string };
 const configuracaoPendente: Record<string, string> = {
   'Conta Twilio': 'TWILIO_ACCOUNT_SID (SID da conta, iniciado por AC)',
   'Credencial da conta': 'TWILIO_AUTH_TOKEN (token da mesma conta)',
@@ -132,7 +132,7 @@ export function EnviarWhatsApp({ pub, anotacao }: { pub: PublicacaoComProcesso; 
           {historico.isError && <p className="text-sm" role="alert">Histórico indisponível. O envio fica bloqueado até ser possível consultá-lo.</p>}
           {historico.data?.length === 0 && <p className="text-sm text-muted-foreground">Nenhum envio registrado.</p>}
           {historico.data?.map(v => <div key={v.id} className="text-sm border rounded p-2 break-words"><p>{v.nome} · +{v.telefone} · {v.provedor === "twilio" ? "Twilio" : "Meta (histórico)"}</p>
-            <p>{labels[v.status] || v.status}{v.erro_codigo ? ` · Código ${v.erro_codigo}` : ""}</p><p className="text-xs text-muted-foreground">{new Date(v.criado_em).toLocaleString("pt-BR", { timeZone: "America/Sao_Paulo" })}</p></div>)}
+            <p>{labels[v.status] || v.status}{v.erro_codigo ? ` · Código ${v.erro_codigo}` : ""}</p><p className="text-xs text-muted-foreground">Tentativa registrada em {new Date(v.criado_em).toLocaleString("pt-BR", { timeZone: "America/Sao_Paulo" })}</p>{v.provedor === "twilio" && v.status === "lida" && v.atualizado_em && <p className="text-xs text-muted-foreground">Confirmação de leitura recebida em {new Date(v.atualizado_em).toLocaleString("pt-BR", { timeZone: "America/Sao_Paulo" })}</p>}</div>)}
           <p className="text-xs text-muted-foreground">“Informada” é marcada automaticamente quando o provedor confirma entrega ou leitura. Resultados inconclusivos exigem conferência antes de qualquer novo envio.</p>
         </div>
       </DialogContent>
