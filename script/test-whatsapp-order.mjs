@@ -14,10 +14,15 @@ const handler = source.slice(
 assert.ok(handler.includes("navigator.clipboard.writeText"));
 const js = ts.transpile(handler, { target: ts.ScriptTarget.ES2022 });
 
+const anotacaoContext=vm.createContext({});
+vm.runInContext(ts.transpile(readFileSync('shared/anotacao-campos.ts','utf8').replace(/export /g,''),{target:ts.ScriptTarget.ES2022}),anotacaoContext);
+const anotacaoHelpers=vm.runInContext('({separarAnotacao,anotacaoParaWhatsApp})',anotacaoContext);
+
 async function message(anotacao, texto, pending = false, manual = null) {
   let copied;
   let saves = 0;
   const sandbox = {
+    ...anotacaoHelpers,
     pub: { id: 1, processoApelido: "Processo de teste", processoNumero: "123",
       tipoDocumento: "Despacho", dataDisponibilizacao: "2026-10-06",
       prazoDias: null, prazoTipo: null, prazoManual: manual, texto },
@@ -40,22 +45,24 @@ async function message(anotacao, texto, pending = false, manual = null) {
   return copied;
 }
 
-const full = await message("Ação: Avaliar recurso.\nConferir documentos.", "Texto integral do despacho.", true);
+const full = await message("Ação: Avaliar recurso.\nCuradoria: Conferir documentos.\nPrompt para IA: Analise a decisão com os documentos anexados.", "Texto integral do despacho.", true);
 assert.ok(full.indexOf("Prazo começa:") < full.indexOf("*Confira:*"));
-assert.ok(full.indexOf("_Texto integral do despacho._") < full.indexOf("*Ação:* Avaliar recurso."));
-assert.ok(full.includes("› Conferir documentos."));
-assert.equal((full.match(/\*Ação:\*/g) || []).length, 1);
-assert.ok(full.endsWith("› Conferir documentos.\n━━━━━━━━━━━━━━"));
+assert.ok(full.indexOf("_Texto integral do despacho._") < full.indexOf("*Ação necessária:* Avaliar recurso."));
+assert.ok(full.includes("*Curadoria:* Conferir documentos."));
+assert.ok(full.includes("*Prompt para IA:* Analise a decisão com os documentos anexados."));
+assert.equal((full.match(/\*Ação necessária:\*/g) || []).length, 1);
+assert.ok(full.indexOf("*Curadoria:*") < full.indexOf("*Prompt para IA:*"));
+assert.ok(full.endsWith("Analise a decisão com os documentos anexados.\n━━━━━━━━━━━━━━"));
 assert.ok(!full.includes("https://"));
 const noNote = await message("", "Texto integral.");
 assert.ok(noNote.includes("_Texto integral._"));
-assert.ok(!noNote.includes("*Ação:*"));
+assert.ok(!noNote.includes("*Ação necessária:*"));
 const noText = await message("Revisar prazo.", "");
 assert.ok(!noText.includes("*Confira:*"));
-assert.ok(noText.includes("*Ação:* Revisar prazo."));
-const multiline = await message("Observação inicial.\nProvidenciar: Documentos.\nSegunda observação.", "Despacho.");
-assert.ok(multiline.indexOf("_Despacho._") < multiline.indexOf("*Ação:* Documentos."));
-assert.ok(multiline.includes("› Observação inicial.\n› Segunda observação."));
+assert.ok(noText.includes("*Curadoria:* Revisar prazo."));
+const multiline = await message("Observação inicial.\nProvidenciar: Documentos.\nCuradoria: Segunda observação.", "Despacho.");
+assert.ok(multiline.indexOf("_Despacho._") < multiline.indexOf("*Ação necessária:* Documentos."));
+assert.ok(multiline.includes("*Curadoria:* Observação inicial.\nSegunda observação."));
 console.log("PASS: texto antes da recomendação; observações ao final; sem anotação; sem texto; debounce; formatação e ausência de link preservados.");
 
 const adjusted = await message("Avaliar recurso.", "Despacho.", false, "2026-11-06");
