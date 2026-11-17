@@ -1,0 +1,13 @@
+import assert from 'node:assert/strict';
+import {separarAnotacao,comporAnotacao,anotacaoParaWhatsApp} from '../shared/anotacao-campos';
+import {separarCuradoria} from '../shared/whatsapp-aviso';
+const campos={acao:'Avaliar a providência.',curadoria:'Primeira observação.\nSegunda observação.',promptIa:'Analise os documentos que anexarei.\nOrganize a resposta assim:\nAção necessária: indique as opções.'};
+assert.deepEqual(separarAnotacao(comporAnotacao(campos)),campos);
+assert.deepEqual(separarAnotacao('Ação: necessária: Nenhuma.\n› Curadoria: Parte contrária.'),{acao:'Nenhuma.',curadoria:'Parte contrária.',promptIa:''});
+assert.deepEqual(separarAnotacao('Texto antigo\nsem marcadores.'),{acao:'',curadoria:'Texto antigo\nsem marcadores.',promptIa:''});
+assert.deepEqual(separarAnotacao('**Ação necessária:** Conferir\r\n**Curadoria:** Observação\r\n**Prompt para IA:** Analisar'),{acao:'Conferir',curadoria:'Observação',promptIa:'Analisar'});
+assert.equal(comporAnotacao({acao:'',curadoria:'',promptIa:''}),'');
+assert.ok(anotacaoParaWhatsApp(campos).includes('*Prompt para IA:* Analise os documentos'));
+assert.deepEqual(separarCuradoria('Ação: Conferir\nCuradoria: Observação'),{acao:'Conferir',curadoria:'Observação'});
+assert.ok(separarCuradoria(comporAnotacao(campos)).curadoria.includes('Prompt para IA: Analise os documentos'));
+console.log('PASS: three annotation fields, legacy text preservation, multiline prompts, WhatsApp headings and approved Twilio template compatibility.');

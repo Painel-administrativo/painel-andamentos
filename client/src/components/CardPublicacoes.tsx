@@ -1,3 +1,4 @@
+import {separarAnotacao,comporAnotacao,anotacaoParaWhatsApp,type CamposAnotacao} from "@shared/anotacao-campos";
 import {AjustarPrazoManual} from "./AjustarPrazoManual";
 import {fimEfetivo,dataPrazoManual} from "@shared/prazo-manual";
 import { montarCalendario, type RegraCalendario } from "@shared/calendario";
@@ -142,17 +143,23 @@ interface AnotacaoBlocoProps {
 
 function AnotacaoBloco({ pub, feriados, suspensoes, calendarioDisponivel, onSalvar, onToast }: AnotacaoBlocoProps) {
   const [valor, setValor] = useState(pub.anotacao ?? "");
+  const [campos, setCampos] = useState(()=>separarAnotacao(pub.anotacao ?? ""));
   const [salvando, setSalvando] = useState<"idle" | "pendente" | "salvo">("idle");
   const timerRef = useRef<number | null>(null);
+  const ultimaEdicaoRef = useRef({id:pub.id,valor:pub.anotacao ?? ""});
 
   // Se a publicação mudar (por ex. refetch da lista), sincroniza.
   useEffect(() => {
+    if (ultimaEdicaoRef.current.id===pub.id && ultimaEdicaoRef.current.valor===(pub.anotacao ?? "")) return;
+    ultimaEdicaoRef.current={id:pub.id,valor:pub.anotacao ?? ""};
     setValor(pub.anotacao ?? "");
+    setCampos(separarAnotacao(pub.anotacao ?? ""));
     setSalvando("idle");
   }, [pub.id, pub.anotacao]);
 
   // Salva com debounce de 800ms após parar de digitar
   const handleChange = (novo: string) => {
+    ultimaEdicaoRef.current={id:pub.id,valor:novo};
     setValor(novo);
     setSalvando("pendente");
     if (timerRef.current) window.clearTimeout(timerRef.current);
@@ -245,29 +252,9 @@ function AnotacaoBloco({ pub, feriados, suspensoes, calendarioDisponivel, onSalv
       linhas.push(`_${textoPub}_`);
     }
 
-    // Anotação: primeira linha que comece com Ação:/Fazer:/Providenciar: vira "*Ação:* …"
-    // Demais linhas viram "› …" (curadoria/observações)
     if (anot) {
       linhas.push("");
-      const linhasAnot = anot
-        .split(/\r?\n/)
-        .map((l) => l.trim())
-        .filter((l) => l.length > 0);
-
-      const rxAcao = /^(a[çc][ãa]o|fazer|providenciar|providencia|urgente)\s*:?\s*/i;
-      let idxAcao = linhasAnot.findIndex((l) => rxAcao.test(l));
-      if (idxAcao === -1 && linhasAnot.length > 0) {
-        // Se não achou marcador explícito, primeira linha vira a ação
-        idxAcao = 0;
-      }
-      if (idxAcao >= 0) {
-        const acaoLinha = linhasAnot[idxAcao].replace(rxAcao, "").trim();
-        linhas.push(`*Ação:* ${acaoLinha}`);
-        linhasAnot.forEach((l, i) => {
-          if (i === idxAcao) return;
-          linhas.push(`› ${l}`);
-        });
-      }
+      linhas.push(anotacaoParaWhatsApp(separarAnotacao(anot)));
     }
 
     // Link do WhatsApp removido em 16/09/2026: mesmo com token opaco, expõe
@@ -289,10 +276,10 @@ function AnotacaoBloco({ pub, feriados, suspensoes, calendarioDisponivel, onSalv
     <div className="space-y-1.5" data-testid={`bloco-anotacao-${pub.id}`}>
       <div className="flex items-center justify-between gap-2">
         <label
-          htmlFor={`anotacao-${pub.id}`}
+          htmlFor={`anotacao-${pub.id}-acao`}
           className="text-xs font-medium text-muted-foreground"
         >
-          Minha anotação
+          Orientações para o advogado
         </label>
         <div className="flex flex-wrap items-center justify-end gap-2">
           <EnviarWhatsApp pub={pub} anotacao={valor} />
@@ -312,15 +299,22 @@ function AnotacaoBloco({ pub, feriados, suspensoes, calendarioDisponivel, onSalv
           </Button>
         </div>
       </div>
-      <textarea
-        id={`anotacao-${pub.id}`}
-        value={valor}
-        onChange={(e) => handleChange(e.target.value)}
-        onClick={(e) => e.stopPropagation()}
-        placeholder="Anote aqui sua compreensão da publicação — salva sozinho e você pode copiar pra mandar pro cliente/advogado."
-        className="w-full min-h-[64px] resize-y rounded-md border border-border bg-background px-2.5 py-1.5 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-primary"
-        data-testid={`textarea-anotacao-${pub.id}`}
-      />
+      {([
+        {chave:'acao',rotulo:'Ação necessária',exemplo:'Qual providência deve ser avaliada ou realizada?'},
+        {chave:'curadoria',rotulo:'Curadoria',exemplo:'Contexto e observações para o advogado responsável.'},
+        {chave:'promptIa',rotulo:'Prompt para IA',exemplo:'Sugestão de pedido para o advogado usar na própria IA, com os documentos necessários.'},
+      ] as const).map(c=><label key={c.chave} className="block text-xs font-medium" htmlFor={`anotacao-${pub.id}-${c.chave}`}>{c.rotulo}:
+        <textarea
+          id={`anotacao-${pub.id}-${c.chave}`}
+          value={campos[c.chave]}
+          onChange={e=>{const novos:CamposAnotacao={...campos,[c.chave]:e.target.value};setCampos(novos);handleChange(comporAnotacao(novos));}}
+          onClick={e=>e.stopPropagation()}
+          placeholder={c.exemplo}
+          className="mt-1 w-full min-h-[64px] resize-y rounded-md border border-border bg-background px-2.5 py-1.5 text-sm font-normal text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-primary"
+          data-testid={`textarea-anotacao-${pub.id}-${c.chave}`}
+        />
+      </label>)}
+      <p className="text-[10px] text-muted-foreground">Campos opcionais, salvos automaticamente. O prompt acompanha a cópia do aviso para o advogado usar na própria IA. No Twilio, ele integra o campo de curadoria e conta no limite da prévia.</p>
     </div>
   );
 }

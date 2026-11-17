@@ -1,3 +1,4 @@
+import {separarAnotacao} from "./anotacao-campos";
 export const LIMITE_AVISO = 1600;
 export const linhaAviso=(v:string)=>v.replace(/\s+/g,' ').trim();
 export type CamposAviso={carimbo:string;identificacao:string;numero:string;tipo:string;disponibilizacao:string;publicacao:string;prazo:string;texto:string;acao:string;curadoria:string};
@@ -7,11 +8,7 @@ export function comporAviso(c:CamposAviso){
  return{values,texto};
 }
 export function separarCuradoria(anotacao:string){
- let acao='';const outras:string[]=[];
- for(const original of anotacao.split(/\r?\n/)){
-  const l=original.trim().replace(/^[›•]\s*/, '');
-  if(/^(?:a[çc][aã]o(?: necess[aá]ria)?|providenciar)\s*:/i.test(l))acao=linhaAviso(l.replace(/^(?:a[çc][aã]o(?: necess[aá]ria)?|providenciar)\s*:\s*(?:necess[aá]ria\s*:\s*)?/i,''));
-  else if(l)outras.push(l.replace(/^curadoria\s*:\s*/i,''));
- }
- return{acao:acao||'Não definida.',curadoria:linhaAviso(outras.join(' '))||'Não informada.'};
+ const c=separarAnotacao(anotacao);
+ const curadoria=[c.curadoria,c.promptIa?`Prompt para IA: ${c.promptIa}`:''].filter(Boolean).join(' · ');
+ return{acao:linhaAviso(c.acao)||'Não definida.',curadoria:linhaAviso(curadoria)||'Não informada.'};
 }
