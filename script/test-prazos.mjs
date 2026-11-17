@@ -36,7 +36,10 @@ if (!process.argv.includes("--caso")) {
   assert.equal(h.formatarBR(old),"03/11/2026","Reproduce the missing-suspension error separately from display timezone");
   let copied, toasted;
   const clipboard = source.slice(source.indexOf("  const copiarComContexto = async"), source.indexOf("\n  return (",source.indexOf("  const copiarComContexto = async")));
-  const sandbox=vm.createContext({...h,
+  const anotacaoContext=vm.createContext({});
+  vm.runInContext(compile(readFileSync('shared/anotacao-campos.ts','utf8').replace(/export /g,'')),anotacaoContext);
+  const anotacaoHelpers=vm.runInContext('({separarAnotacao,anotacaoParaWhatsApp})',anotacaoContext);
+  const sandbox=vm.createContext({...h,...anotacaoHelpers,
     pub:{id:1,processoApelido:"Processo de teste",processoNumero:"30013004420268190061",tipoDocumento:"Sentença",dataDisponibilizacao:"2026-10-23",prazoDias:5,prazoTipo:"uteis",texto:"Sentença de teste"},
     valor:"Avaliar embargos.",feriados,suspensoes: new Set(), calendarioDisponivel:true,timerRef:{current:null},
     formatarCNJ:()=>"3001300-44.2026.8.19.0061",formatarDataPub:()=>"23/10/2026",limparTexto:v=>v,
