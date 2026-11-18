@@ -17,29 +17,59 @@ export function linkCaderno(data:string) {
 function decodificar(s:string) {return s.replace(/&amp;/g,"&").replace(/&#38;/g,"&");}
 export function pdfNoVisualizador(html:string,base:string) {
  const path=html.match(/id=["']hdnPrintUrl["'][^>]*value=["']([^"']+)["']/i)?.[1];
- if(!path) throw Error("A fonte não retornou um PDF reconhecível. Abra o documento no TJ e importe o arquivo.");
+ if(!path) throw new ErroImportacao("VISUALIZADOR_NAO_RECONHECIDO","A fonte não retornou um PDF reconhecível. Abra o documento no TJ e importe o arquivo.");
  return urlOficial(new URL(decodificar(path),base).toString());
 }
+export class ErroImportacao extends Error {
+ constructor(public codigo:string,mensagem:string) {super(mensagem);this.name="ErroImportacao";}
+}
+export function diagnosticoImportacao(e:unknown) {
+ if(e instanceof ErroImportacao) return `[${e.codigo}] ${e.message}`;
+ if(e instanceof Error && ["TimeoutError","AbortError"].includes(e.name)) return "[TEMPO_ESGOTADO] A fonte não respondeu dentro de 25 segundos.";
+ // Never persist arbitrary exception payloads, URLs, headers or database details.
+ return "[IMPORTACAO_NAO_CONCLUIDA] Não foi possível baixar ou extrair o documento. Confira a fonte ou importe o PDF.";
+}
 export async function baixarDocumento(url:string,transport:typeof fetch=fetch) {
- let atual=urlOficial(url);
- const signal=AbortSignal.timeout(25_000);
- for(let passos=0;passos<5;passos++) {
-  const r=await transport(atual,{redirect:"manual",signal,headers:{Accept:"application/pdf,text/html"}});
-  if([301,302,303,307,308].includes(r.status)) {
-   const to=r.headers.get("location");if(!to) throw Error("Redirecionamento sem destino.");
-   await r.body?.cancel();atual=urlOficial(new URL(to,atual).toString());continue;
+ const inicial=urlOficial(url),signal=AbortSignal.timeout(25_000);
+ // The viewer generates a temporary PDF. Keep session/affinity cookies only
+ // within this download and its exact origin; never forward them across hosts.
+ const sessoes=new Map<string,Map<string,string>>();
+ for(let tentativa=0;tentativa<2;tentativa++) {
+  let atual=inicial,renovar=false;
+  for(let passos=0;passos<5;passos++) {
+   const origem=new URL(atual).origin;
+   const cookies=sessoes.get(origem)??new Map<string,string>();
+   const headers:Record<string,string>={Accept:"application/pdf,text/html"};
+   if(cookies.size) headers.Cookie=Array.from(cookies,([k,v])=>`${k}=${v}`).join("; ");
+   const r=await transport(atual,{redirect:"manual",signal,headers});
+   for(const cookie of r.headers.getSetCookie()) {
+    const par=cookie.split(";",1)[0],eq=par.indexOf("=");
+    if(eq>0) cookies.set(par.slice(0,eq),par.slice(eq+1));
+   }
+   sessoes.set(origem,cookies);
+   if([301,302,303,307,308].includes(r.status)) {
+    const to=r.headers.get("location");if(!to) throw new ErroImportacao("REDIRECIONAMENTO_INVALIDO","Redirecionamento sem destino.");
+    await r.body?.cancel();atual=urlOficial(new URL(to,atual).toString());continue;
+   }
+   if(!r.ok) {
+    await r.body?.cancel();
+    // A missing generated file is not evidence of an edition-free day.
+    // Reopen the viewer once to obtain a fresh temporary address.
+    if(tentativa===0 && atual!==inicial && r.status===404 && /\/consultadje\/handlers\/DownloadPdf\.ashx$/i.test(new URL(atual).pathname)) {renovar=true;break;}
+    throw new ErroImportacao(`FONTE_HTTP_${r.status}`,`Fonte indisponível (HTTP ${r.status}). A captura permanece não confirmada.`);
+   }
+   if(Number(r.headers.get("content-length")||0)>MAX_PDF) {await r.body?.cancel();throw new ErroImportacao("PDF_LIMITE","Documento excede 8 MB.");}
+   const reader=r.body?.getReader();if(!reader) throw new ErroImportacao("DOCUMENTO_VAZIO","Documento vazio.");
+   const partes:Uint8Array[]=[];let size=0;
+   try {while(true) {const {done,value}=await reader.read();if(done) break;size+=value.length;if(size>MAX_PDF) throw new ErroImportacao("PDF_LIMITE","Documento excede 8 MB.");partes.push(value);}}
+   finally {await reader.cancel().catch(()=>{});}
+   const bytes=Buffer.concat(partes);
+   if(bytes.subarray(0,5).toString()==="%PDF-") return {bytes,url:atual};
+   atual=pdfNoVisualizador(bytes.toString("utf8"),atual);
   }
-  if(!r.ok) {await r.body?.cancel();throw Error(`Fonte indisponível (HTTP ${r.status}).`);}
-  if(Number(r.headers.get("content-length")||0)>MAX_PDF) {await r.body?.cancel();throw Error("Documento excede 8 MB.");}
-  const reader=r.body?.getReader();if(!reader) throw Error("Documento vazio.");
-  const partes:Uint8Array[]=[];let size=0;
-  try {while(true) {const {done,value}=await reader.read();if(done) break;size+=value.length;if(size>MAX_PDF) throw Error("Documento excede 8 MB.");partes.push(value);}}
-  finally {await reader.cancel().catch(()=>{});}
-  const bytes=Buffer.concat(partes);
-  if(bytes.subarray(0,5).toString()==="%PDF-") return {bytes,url:atual};
-  atual=pdfNoVisualizador(bytes.toString("utf8"),atual);
+  if(!renovar) throw new ErroImportacao("REDIRECIONAMENTOS_LIMITE","Excesso de redirecionamentos/visualizadores.");
  }
- throw Error("Excesso de redirecionamentos/visualizadores.");
+ throw new ErroImportacao("CAPTURA_NAO_CONFIRMADA","Captura não confirmada.");
 }
 export function extrairPropostas(pages:string[]) {
  const out:{chave:string;pagina:number;trecho:string;sugestao:{ato:string;datas:string[]}}[]=[];
@@ -56,19 +86,19 @@ export function extrairPropostas(pages:string[]) {
    const ato=trecho.match(/(?:ATO EXECUTIVO(?: CONJUNTO)?|AVISO(?: CONJUNTO)?|PORTARIA|RESOLU[ÇC][ÃA]O|PROVIMENTO|DECRETO)[^\n]{0,120}/i)?.[0]||"";
    const datas=Array.from(new Set(Array.from(trecho.matchAll(/\b(\d{2})\/(\d{2})\/(20\d{2})\b/g)).map(m=>`${m[3]}-${m[2]}-${m[1]}`).filter(dataValida)));
    out.push({chave:hash(`${pagina+1}:${trecho}`),pagina:pagina+1,trecho,sugestao:{ato,datas}});
-   if(out.length>=250) throw Error("Mais de 250 trechos candidatos: importe um documento menor ou páginas selecionadas.");
+   if(out.length>=250) throw new ErroImportacao("CANDIDATOS_LIMITE","Mais de 250 trechos candidatos: importe um documento menor ou páginas selecionadas.");
   }
  }
  return out;
 }
 export async function lerPdf(bytes:Buffer) {
- if(bytes.length>MAX_PDF || bytes.subarray(0,5).toString()!=="%PDF-") throw Error("Arquivo PDF inválido ou superior a 8 MB.");
+ if(bytes.length>MAX_PDF || bytes.subarray(0,5).toString()!=="%PDF-") throw new ErroImportacao("PDF_INVALIDO","Arquivo PDF inválido ou superior a 8 MB.");
  const pdf=await getDocumentProxy(new Uint8Array(bytes));
  try {
-  if(pdf.numPages>350) throw Error("PDF excede 350 páginas. Divida o caderno para importar.");
+  if(pdf.numPages>350) throw new ErroImportacao("PAGINAS_LIMITE","PDF excede 350 páginas. Divida o caderno para importar.");
   const r=await extractText(pdf,{mergePages:false});
-  const text=r.text.join("\f");if(text.trim().length<50) throw Error("PDF sem texto pesquisável. É necessário OCR antes da importação.");
-  if(text.length>2_000_000) throw Error("Texto do documento excede o limite de importação.");
+  const text=r.text.join("\f");if(text.trim().length<50) throw new ErroImportacao("OCR_NECESSARIO","PDF sem texto pesquisável. É necessário OCR antes da importação.");
+  if(text.length>2_000_000) throw new ErroImportacao("TEXTO_LIMITE","Texto do documento excede o limite de importação.");
   return {paginas:r.totalPages,texto:text,propostas:extrairPropostas(r.text)};
  } finally {await pdf.loadingTask.destroy();}
 }

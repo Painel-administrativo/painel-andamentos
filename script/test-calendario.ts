@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import {readFileSync} from "node:fs";
-import {urlOficial,baixarDocumento,pdfNoVisualizador,extrairPropostas,lerPdf,linkCaderno} from "../server/calendario-importacao";
+import {urlOficial,baixarDocumento,pdfNoVisualizador,extrairPropostas,lerPdf,linkCaderno,ErroImportacao,diagnosticoImportacao} from "../server/calendario-importacao";
 import {regraSchema,montarCalendario,resumoPrazo,type RegraCalendario} from "../shared/calendario";
 import {calcularDatasPrazo,formatarBR} from "../shared/prazos";
 
@@ -16,6 +16,36 @@ await assert.rejects(()=>baixarDocumento(source,async()=>new Response(null,{stat
 await assert.rejects(()=>baixarDocumento(source,async()=>new Response('Unavailable',{status:503})));
 await assert.rejects(()=>baixarDocumento(source,async()=>new Response('not a PDF')));
 await assert.rejects(()=>baixarDocumento(source,async()=>new Response('x',{headers:{'content-length':'8000001'}})));
+// Temporary files must retain viewer session/affinity; refresh a missing file once.
+const requests:{url:string;cookie:string|undefined}[]=[];
+const sessionPdf=await baixarDocumento(source,async(url,init)=>{
+ requests.push({url:String(url),cookie:(init?.headers as Record<string,string>)?.Cookie});
+ const n=requests.length;
+ if(n===1 || n===3) return new Response(`<input id="hdnPrintUrl" value="/CONSULTADJE/Handlers/DownloadPdf.ashx?guid=${n}"/>`,{headers:{"Set-Cookie":`Cookie_www3=server${n}; Secure; HttpOnly`}});
+ if(n===2) return new Response(null,{status:404});
+ return new Response('%PDF-session');
+});
+assert.equal(sessionPdf.bytes.toString(),'%PDF-session');
+assert.equal(requests.length,4);
+assert.equal(requests[1].cookie,'Cookie_www3=server1');
+assert.equal(requests[3].cookie,'Cookie_www3=server3');
+assert.equal(requests[2].url,source,'Retry must reopen the original viewer');
+let retries=0;
+await assert.rejects(()=>baixarDocumento(source,async()=>{
+ retries++;
+ return retries%2===1?new Response('<input id="hdnPrintUrl" value="/CONSULTADJE/Handlers/DownloadPdf.ashx?guid=missing"/>'):new Response(null,{status:404});
+}),/HTTP 404/);
+assert.equal(retries,4,'A permanent missing file must not loop or become success');
+let cross=0;
+await baixarDocumento(source,async(_url,init)=>{
+ cross++;
+ if(cross===1) return new Response(null,{status:302,headers:{location:'https://www.tjrj.jus.br/documents/test.pdf','Set-Cookie':'Cookie_www3=private; Secure'}});
+ assert.equal((init?.headers as Record<string,string>).Cookie,undefined,'No session forwarded across official hosts');
+ return new Response('%PDF-cross');
+});
+assert.equal(diagnosticoImportacao(new ErroImportacao('FONTE_HTTP_404','Fonte indisponível.')),'[FONTE_HTTP_404] Fonte indisponível.');
+assert.ok(!diagnosticoImportacao(new Error('password=secret')).includes('secret'));
+assert.ok(diagnosticoImportacao(new DOMException('private','TimeoutError')).includes('TEMPO_ESGOTADO'));
 const propostas=extrairPropostas(['AVISO 290/2026\nResolve suspender o expediente em 30/10/2026.','Sem assuntos relacionados.']);
 assert.equal(propostas.length,1);assert.equal(propostas[0].pagina,1);assert.deepEqual(propostas[0].sugestao.datas,['2026-10-30']);
 assert.equal((propostas[0] as any).status,undefined,'Extraction cannot approve anything');
