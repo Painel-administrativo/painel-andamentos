@@ -37,6 +37,10 @@ for back in range(5):
         if not isinstance(result.get('id'), str):
             raise ValueError('Resposta inválida')
         print(f'{day}: documento arquivado; repetido={result.get("repetido")}; candidatos={result.get("propostas")}')
+    except urllib.error.HTTPError as error:
+        failures += 1
+        # Print only a bounded HTTP status; response bodies may carry private data.
+        print(f'{day}: captura não confirmada (HTTP {error.code}). Confira o histórico do calendário para a causa. Não equivale a ausência de edição.')
     except Exception:
         # Do not log server payloads, HTTP headers or secrets.
         failures += 1

@@ -45,3 +45,7 @@ Não é uma auditoria completa do calendário-base anterior nem uma certificaç�
 Testes: `npm run check`; `node --import tsx script/test-calendario.ts`; `node --import tsx script/test-calendario-revisao.ts`; `node script/test-calendario-pdf.mjs`; `node script/test-prazos.mjs`; `node script/test-whatsapp-order.mjs`; testes de autenticação e smoke test do handler da Vercel.
 
 Validado localmente com PDF oficial do DJERJ de 23/10/2026: 135 páginas, mais de 720 mil caracteres e 23 trechos candidatos, sem aprovar nenhuma regra. Esse documento não foi inserido no banco de produção durante o desenvolvimento.
+
+### Download do visualizador do TJRJ
+
+O download preserva cookies de sessão/afinidade apenas na mesma origem e durante a captura. Se o arquivo temporário responder HTTP 404, reabre o visualizador uma vez, dentro do limite total de 25 segundos. Uma falha persistente continua não confirmada; nunca significa ausência de edição ou de suspensão. O histórico registra códigos específicos de falha, sem payloads ou credenciais. O e-mail do GitHub pode indicar falha parcial: confira as datas bem-sucedidas no histórico.

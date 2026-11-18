@@ -2,7 +2,7 @@ import type {Express} from "express";
 import type {Pool,PoolClient} from "pg";
 import {z} from "zod";
 import {regraSchema,resumoPrazo,type RegraCalendario} from "../shared/calendario";
-import {baixarDocumento,lerPdf,hash,urlOficial,linkCaderno} from "./calendario-importacao";
+import {baixarDocumento,lerPdf,hash,urlOficial,linkCaderno,diagnosticoImportacao} from "./calendario-importacao";
 import {SUSPENSOES_CONFIRMADAS} from "../client/src/lib/calendario-forense";
 const uuid=z.string().uuid();
 const importarSchema=z.object({fonte:z.string().max(2000),titulo:z.string().trim().min(3).max(200),pdfBase64:z.string().max(4_000_000).optional()}).strict();
@@ -96,7 +96,7 @@ export function registrarCalendario(app:Express,pool:Pool) {
    await pool.query("INSERT INTO public.painel_cal_consultas(fonte,status,mensagem,documento_id) VALUES($1,'sucesso',$2,$3)",[fonte,r.repetido?"Documento já arquivado; conteúdo idêntico.":`PDF arquivado; ${r.propostas} trechos candidatos. Extração não equivale a conferência.`,r.id]);
    res.json(r);
   }catch(e){
-   if(fonte) await pool.query("INSERT INTO public.painel_cal_consultas(fonte,status,mensagem) VALUES($1,'falha',$2)",[fonte,"Não foi possível baixar ou extrair o documento. Confira a fonte ou importe o PDF."]).catch(()=>{});
+   if(fonte) await pool.query("INSERT INTO public.painel_cal_consultas(fonte,status,mensagem) VALUES($1,'falha',$2)",[fonte,diagnosticoImportacao(e)]).catch(()=>{});
    erro(res,e);
   }
  }
