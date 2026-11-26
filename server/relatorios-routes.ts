@@ -84,7 +84,18 @@ export function registrarRelatorios(app:Express,pool:Pool) {
  app.get('/api/relatorios',async(req,res)=>{try{
   const grupo=uuid.parse(req.query.grupo),pagina=z.coerce.number().int().min(1).max(100000).parse(req.query.pagina??1);
   const r=await pool.query(`SELECT id,nome_escritorio,to_char(inicio,'YYYY-MM-DD') AS inicio,to_char(fim,'YYYY-MM-DD') AS fim,estado,criado_em,conferido_em,copiado_em FROM public.painel_rel_relatorios WHERE grupo_id=$1 ORDER BY criado_em DESC LIMIT 20 OFFSET $2`,[grupo,(pagina-1)*20]);
-  const total=(await pool.query('SELECT count(*)::integer AS n FROM public.painel_rel_relatorios WHERE grupo_id=$1',[grupo])).rows[0].n;res.json({items:r.rows,total});
+  const {total,ultimo_conferido,rascunho_aberto}=(await pool.query(`
+   SELECT count(*)::integer AS total,
+     (SELECT json_build_object('id',id,'inicio',inicio,'fim',fim)
+        FROM public.painel_rel_relatorios
+        WHERE grupo_id=$1 AND estado='conferido'
+        ORDER BY conferido_em DESC NULLS LAST, criado_em DESC LIMIT 1) AS ultimo_conferido,
+     (SELECT id FROM public.painel_rel_relatorios
+        WHERE grupo_id=$1 AND estado IN ('coletando','rascunho')
+        LIMIT 1) AS rascunho_aberto
+   FROM public.painel_rel_relatorios WHERE grupo_id=$1
+  `,[grupo])).rows[0];
+  res.json({items:r.rows,total,ultimoConferido:ultimo_conferido,rascunhoAberto:rascunho_aberto});
  }catch(e){fail(res,e);}});
  app.post('/api/relatorios/grupos/:id/gerar',async(req,res)=>{try{const id=uuid.parse(req.params.id),periodo=periodoInput.parse(req.body);res.json(await criarRelatorio(pool,id,periodo));}catch(e){fail(res,e);}});
  app.post('/api/relatorios/:id/usar-como-base',async(req,res)=>{try{
